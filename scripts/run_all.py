@@ -19,6 +19,7 @@ from scripts import (
     export_signals,
     generate_features,
     prepare_data,
+    render_report,
     run_backtest,
     summary,
     train_model,
@@ -49,6 +50,8 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
     top_k = int(signals_cfg.get("top_k", 3))
     experiments_cfg = config.get("experiments", {})
     experiments_base = Path(experiments_cfg.get("base", "experiments"))
+    reports_cfg = config.get("reports", {})
+    html_report_path = Path(reports_cfg.get("html", "reports/latest/review.html"))
 
     return {
         "check": lambda: check_env.main(),
@@ -65,6 +68,11 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
             Path(config.get("reports", {}).get("summary", run_backtest.DEFAULT_REPORT_PATH)),
         ),
         "summary": lambda: summary.summarize(experiments_base),
+        "review": lambda: render_report.run(
+            Path(signals_cfg.get("output", export_signals.DEFAULT_OUTPUT_PATH)),
+            Path(reports_cfg.get("summary", run_backtest.DEFAULT_REPORT_PATH)),
+            html_report_path,
+        ),
     }
 
 

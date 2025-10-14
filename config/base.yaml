@@ -13,6 +13,9 @@ data:
 features:
   template: config/templates/default_indicators.yaml
   output: features/features.csv
+  templates:
+    - config/templates/default_indicators.yaml
+    - config/templates/basic_volume.yaml
 
 signals:
   output: artifacts/signals.csv
@@ -20,6 +23,7 @@ signals:
 
 reports:
   summary: reports/latest/backtest_summary.json
+  html: reports/latest/review.html
 
 experiments:
   base: experiments

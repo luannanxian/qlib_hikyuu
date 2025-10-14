@@ -1,0 +1,15 @@
+name: volume_focus
+frequency: day
+indicators:
+  - type: EMA
+    source: CLOSE
+    window: 20
+  - type: MA
+    source: VOLUME
+    window: 30
+  - type: BOLL
+    source: CLOSE
+    window: 20
+    std: 2
+  - type: ATR
+    window: 14

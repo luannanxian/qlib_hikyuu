@@ -7,6 +7,7 @@ __all__ = [
     "generate_features",
     "export_signals",
     "run_backtest",
+    "render_report",
     "run_all",
     "summary",
 ]
