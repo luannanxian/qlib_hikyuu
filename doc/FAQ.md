@@ -32,6 +32,18 @@ export QLIB_HIKYUU_INSTRUMENTS="SH600000,SZ000001"
 ### Q: 生成的 `pred.pkl` 是什么格式？
 A: 真实训练时为包含 MultiIndex（datetime, instrument）的 DataFrame；占位逻辑则输出相同结构的随机数据。
 
+### Q: 如何启用 MLflow 记录训练指标？
+A: 在 Python 环境安装 `mlflow`（项目根目录的 `requirements.txt` 已包含），然后运行脚本时，`scripts/train_model.py` 会检测环境变量：
+```bash
+export QLIB_USE_MLFLOW=true
+export MLFLOW_TRACKING_URI=http://localhost:5000  # 可选，本地默认为 mlruns/ 目录
+```
+随后执行：
+```bash
+python scripts/run_all.py --steps train
+```
+成功训练后可通过 `mlflow ui` 查看指标与 artifact。如果未设置 `QLIB_USE_MLFLOW`，脚本会跳过 MLflow 记录。
+
 ## 工作流与输出
 
 ### Q: 如何只运行部分步骤？
