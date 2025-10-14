@@ -8,6 +8,7 @@ __all__ = [
     "export_signals",
     "run_backtest",
     "render_report",
+    "review_decision",
     "run_all",
     "summary",
 ]

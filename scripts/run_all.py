@@ -73,6 +73,7 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
             Path(reports_cfg.get("summary", run_backtest.DEFAULT_REPORT_PATH)),
             html_report_path,
         ),
+        "decision": lambda: review_decision.main(),
     }
 
 
