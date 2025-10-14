@@ -26,6 +26,11 @@ reports:
   summary: reports/latest/backtest_summary.json
   html: reports/latest/review.html
 
+decision:
+  report: artifacts/review_decision.json
+  approved: artifacts/approved_signals.csv
+  auto: true
+
 experiments:
   base: experiments
 

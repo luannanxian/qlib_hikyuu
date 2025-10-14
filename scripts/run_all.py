@@ -20,6 +20,7 @@ from scripts import (
     generate_features,
     prepare_data,
     render_report,
+    review_decision,
     run_backtest,
     summary,
     train_model,
@@ -53,6 +54,11 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
     reports_cfg = config.get("reports", {})
     html_report_path = Path(reports_cfg.get("html", "reports/latest/review.html"))
 
+    decision_cfg = config.get("decision", {})
+    decision_report = Path(decision_cfg.get("report", "artifacts/review_decision.json"))
+    decision_output = Path(decision_cfg.get("approved", "artifacts/approved_signals.csv"))
+    decision_auto = bool(decision_cfg.get("auto", False))
+
     return {
         "check": lambda: check_env.main(),
         "prepare": lambda: prepare_data.run(),
@@ -73,7 +79,12 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
             Path(reports_cfg.get("summary", run_backtest.DEFAULT_REPORT_PATH)),
             html_report_path,
         ),
-        "decision": lambda: review_decision.main(),
+        "decision": lambda: review_decision.run_review(
+            Path(signals_cfg.get("output", export_signals.DEFAULT_OUTPUT_PATH)),
+            decision_report,
+            decision_output,
+            decision_auto,
+        ),
     }
 
 

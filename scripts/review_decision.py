@@ -61,6 +61,28 @@ def save_decision_report(signals, decisions, report_path: Path, approved_path: P
     return len(approved_rows)
 
 
+def run_review(
+    signals_path: Path = DEFAULT_SIGNALS,
+    report_path: Path = DECISION_REPORT,
+    approved_path: Path = APPROVED_SIGNALS,
+    auto: bool = False,
+) -> int:
+    if not signals_path.exists():
+        print(f"Signals file not found: {signals_path}")
+        return 1
+
+    signals = load_signals(signals_path)
+    if not signals:
+        print("No signals to review.")
+        return 0
+
+    decisions = [True] * len(signals) if auto else prompt_decision(signals)
+
+    approved_count = save_decision_report(signals, decisions, report_path, approved_path)
+    print(f"Approved {approved_count}/{len(signals)} signals. Report saved to {report_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Review signals and approve or reject them.")
     parser.add_argument("--signals", type=Path, default=DEFAULT_SIGNALS)
@@ -68,26 +90,8 @@ def main() -> int:
     parser.add_argument("--approved", type=Path, default=APPROVED_SIGNALS)
     parser.add_argument("--auto", action="store_true", help="Approve all signals without prompting.")
     args = parser.parse_args()
-
-    if not args.signals.exists():
-        print(f"Signals file not found: {args.signals}")
-        return 1
-
-    signals = load_signals(args.signals)
-    if not signals:
-        print("No signals to review.")
-        return 0
-
-    if args.auto:
-        decisions = [True] * len(signals)
-    else:
-        decisions = prompt_decision(signals)
-
-    approved_count = save_decision_report(signals, decisions, args.report, args.approved)
-    print(f"Approved {approved_count}/{len(signals)} signals. Report saved to {args.report}")
-    return 0
+    return run_review(args.signals, args.report, args.approved, args.auto)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
