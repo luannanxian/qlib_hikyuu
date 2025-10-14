@@ -1,0 +1,14 @@
+# Ignored directories
+Users/
+.hikyuu_home_test/
+gitdir/
+
+# Python
+__pycache__/
+*.pyc
+
+# Qlib / outputs
+mlruns/
+logs/
+reports/
+cache/
