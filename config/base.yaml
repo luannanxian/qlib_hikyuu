@@ -16,6 +16,7 @@ features:
   templates:
     - config/templates/default_indicators.yaml
     - config/templates/basic_volume.yaml
+    - config/templates/advanced_momentum.yaml
 
 signals:
   output: artifacts/signals.csv

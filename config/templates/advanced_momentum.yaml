@@ -1,0 +1,19 @@
+name: advanced_momentum
+frequency: day
+indicators:
+  - type: EMA
+    source: CLOSE
+    window: 3
+  - type: EMA
+    source: CLOSE
+    window: 6
+  - type: MACD
+    fast: 12
+    slow: 26
+    signal: 9
+  - type: RSI
+    source: CLOSE
+    window: 9
+  - type: STOCH
+    window: 14
+    smoothing: 3
