@@ -176,6 +176,39 @@ def _train_placeholder(pred_path: Path, metrics_path: Path) -> None:
     print(f"[train-model] fallback predictions saved to {pred_path}")
 
 
+def log_to_mlflow(config: Dict[str, object], metrics_path: Path) -> None:
+    """Log metrics to MLflow if enabled via environment variable."""
+
+    if not os.environ.get("QLIB_USE_MLFLOW"):
+        return
+
+    try:
+        import mlflow
+    except ImportError:  # pragma: no cover - optional dependency
+        print("[train-model] MLflow not available, skipping logging.")
+        return
+
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+
+    mlflow_cfg = config.get("mlflow", {}) if isinstance(config.get("mlflow"), dict) else {}
+    experiment_name = mlflow_cfg.get("experiment_name", "qlib-workstation")
+    mlflow.set_experiment(experiment_name)
+    run_name = mlflow_cfg.get("run_name")
+
+    metrics = {}
+    if metrics_path.exists():
+        metrics = json.loads(metrics_path.read_text() or "{}")
+
+    with mlflow.start_run(run_name=run_name):
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)):
+                mlflow.log_metric(key, value)
+        if metrics_path.exists():
+            mlflow.log_artifact(str(metrics_path))
+
+
 def run_with_config(config: Dict[str, object], pred_path: Path = PRED_PATH, metrics_path: Path = METRICS_PATH) -> None:
     try:
         _train_with_qlib(config, pred_path, metrics_path)

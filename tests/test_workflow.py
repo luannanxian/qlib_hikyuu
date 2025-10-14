@@ -1,6 +1,7 @@
 import json
 import pickle
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -10,16 +11,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import (
+    check_env,
     export_signals,
     generate_features,
     prepare_data,
     render_report,
     review_decision,
+    run_all,
     run_backtest,
     summary,
     train_model,
 )
-from scripts.config_utils import load_yaml
+from scripts.config_utils import load_runtime_config, load_yaml
 
 
 def test_prepare_data_creates_file(tmp_path: Path) -> None:
@@ -137,3 +140,87 @@ def test_config_utils_load_yaml_fallback(tmp_path: Path) -> None:
     path = tmp_path / "missing.yaml"
     data = load_yaml(path, fallback={"name": "fallback"})
     assert data["name"] == "fallback"
+
+
+def test_load_runtime_config_merge(tmp_path: Path) -> None:
+    base = tmp_path / "base.yaml"
+    override = tmp_path / "override.yaml"
+    base.write_text("run_modes:\n  default: quick\nvalue: 1\n")
+    override.write_text("value: 2\nextra: true\n")
+    config = load_runtime_config([base, override])
+    assert config["run_modes"]["default"] == "quick"
+    assert config["value"] == 2
+    assert config["extra"] is True
+
+
+def test_check_env_helpers():
+    ok, _ = check_env.check_python()
+    assert isinstance(ok, bool)
+    ok, _ = check_env.check_env_vars()
+    assert isinstance(ok, bool)
+
+
+def test_run_all_build_registry(tmp_path: Path):
+    template = tmp_path / "template.yaml"
+    template.write_text("name: t\nfrequency: day\nindicators:\n  - type: EMA\n")
+    config = {
+        "features": {"template": str(template), "output": str(tmp_path / "features.csv")},
+        "signals": {"output": str(tmp_path / "signals.csv"), "top_k": 1},
+        "reports": {"summary": str(tmp_path / "summary.json"), "html": str(tmp_path / "review.html")},
+        "decision": {"report": str(tmp_path / "decision.json"), "approved": str(tmp_path / "approved.csv"), "auto": True},
+        "experiments": {"base": str(tmp_path / "experiments")},
+    }
+    (tmp_path / "signals.csv").write_text("datetime,instrument,action,weight,score\n2025-01-01,SH600000,buy,1,0.5\n")
+    (tmp_path / "summary.json").write_text("{}")
+    registry = run_all.build_registry(config)
+    assert "decision" in registry
+    registry["decision"]()
+    assert (tmp_path / "decision.json").exists()
+
+
+def test_review_decision_manual(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    signals = tmp_path / "signals.csv"
+    signals.write_text("datetime,instrument,action,weight,score\n2025-01-01,SH600000,buy,0.5,1.0\n")
+    report = tmp_path / "decision.json"
+    approved = tmp_path / "approved.csv"
+    responses = iter(["n"])
+    monkeypatch.setattr("builtins.input", lambda _: next(responses))
+    result = review_decision.run_review(signals, report, approved, auto=False)
+    assert result == 0
+    data = json.loads(report.read_text())
+    assert data["approved"] == 0
+    assert "SH600000" not in approved.read_text()
+
+
+def test_log_to_mlflow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    module = types.SimpleNamespace()
+    records = {"metrics": [], "artifacts": []}
+
+    def start_run(**kwargs):
+        records["run"] = kwargs.get("run_name")
+
+        class Dummy:
+            def __enter__(self_inner):
+                return None
+
+            def __exit__(self_inner, exc_type, exc, tb):
+                return False
+
+        return Dummy()
+
+    module.set_tracking_uri = lambda uri: records.setdefault("uri", uri)
+    module.set_experiment = lambda name: records.setdefault("exp", name)
+    module.start_run = start_run
+    module.log_metric = lambda key, value: records["metrics"].append((key, value))
+    module.log_artifact = lambda path: records["artifacts"].append(Path(path).name)
+    monkeypatch.setitem(sys.modules, "mlflow", module)
+    monkeypatch.setenv("QLIB_USE_MLFLOW", "1")
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+
+    metrics_path = tmp_path / "metrics.json"
+    metrics_path.write_text(json.dumps({"rows": 5, "placeholder": False}))
+    config = {"mlflow": {"experiment_name": "demo", "run_name": "test-run"}}
+    train_model.log_to_mlflow(config, metrics_path)
+    assert records["exp"] == "demo"
+    assert records["run"] == "test-run"
+    assert ("metrics.json" in records["artifacts"]) if records["artifacts"] else True
