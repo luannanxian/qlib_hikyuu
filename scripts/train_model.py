@@ -179,6 +179,7 @@ def _train_placeholder(pred_path: Path, metrics_path: Path) -> None:
 def run_with_config(config: Dict[str, object], pred_path: Path = PRED_PATH, metrics_path: Path = METRICS_PATH) -> None:
     try:
         _train_with_qlib(config, pred_path, metrics_path)
+        log_to_mlflow(config, metrics_path)
     except Exception as exc:  # pragma: no cover
         print(f"[train-model] qlib workflow failed: {exc}\nUsing placeholder results instead.")
         _train_placeholder(pred_path, metrics_path)
