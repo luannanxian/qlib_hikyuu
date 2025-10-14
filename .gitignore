@@ -12,3 +12,7 @@ mlruns/
 logs/
 reports/
 cache/
+features/
+data/
+artifacts/
+experiments/

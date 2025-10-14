@@ -1,0 +1,18 @@
+run_modes:
+  default: quick
+  supported:
+    - quick
+    - full
+data:
+  output_dir: data
+  features_dir: features
+workflow:
+  steps:
+    - check
+    - prepare
+    - train
+    - features
+    - signals
+    - backtest
+signals:
+  top_k: 3

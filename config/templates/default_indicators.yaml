@@ -1,0 +1,14 @@
+name: basic_indicators
+frequency: day
+indicators:
+  - type: EMA
+    window: 5
+    source: CLOSE
+  - type: EMA
+    window: 10
+    source: CLOSE
+  - type: RSI
+    window: 14
+    source: CLOSE
+  - type: VOLUME_RATIO
+    window: 5
