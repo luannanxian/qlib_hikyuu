@@ -53,7 +53,7 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
     return {
         "check": lambda: check_env.main(),
         "prepare": lambda: prepare_data.run(),
-        "train": lambda: train_model.run(),
+        "train": lambda: train_model.run_with_config(config),
         "features": lambda: generate_features.run_from_config(template_path, output_path),
         "signals": lambda: export_signals.run(
             export_signals.DEFAULT_PRED_PATH,

@@ -9,6 +9,8 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 
+import pandas as pd
+
 DEFAULT_PRED_PATH = Path("experiments") / "latest" / "pred.pkl"
 DEFAULT_OUTPUT_PATH = Path("artifacts") / "signals.csv"
 
@@ -17,11 +19,22 @@ def run(pred_path: Path, output_path: Path, top_k: int) -> None:
     if not pred_path.exists():
         raise FileNotFoundError(f"Prediction file not found: {pred_path}")
     with pred_path.open("rb") as fp:
-        rows = pickle.load(fp)
+        raw = pickle.load(fp)
 
     grouped = defaultdict(list)
-    for row in rows:
-        grouped[row["datetime"]].append(row)
+    if isinstance(raw, pd.DataFrame):
+        df = raw.reset_index()
+        for _, row in df.iterrows():
+            grouped[str(row["datetime"])].append(
+                {
+                    "datetime": str(row["datetime"]),
+                    "instrument": str(row["instrument"]),
+                    "score": float(row["score"]),
+                }
+            )
+    else:
+        for row in raw:
+            grouped[row["datetime"]].append(row)
 
     signals = []
     for dt, items in grouped.items():
