@@ -3,7 +3,7 @@ run_modes:
   supported: [quick, full]
 
 workflow:
-  steps: [check, prepare, train, features, signals, backtest, summary]
+  steps: [check, prepare, train, features, signals, backtest, summary, review, decision]
 
 data:
   provider_uri: "~/.qlib/qlib_data/cn_data"
