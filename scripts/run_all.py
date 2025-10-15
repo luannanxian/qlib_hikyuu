@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List
 
+import ast
+
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -29,6 +31,42 @@ from scripts.config_utils import load_runtime_config
 
 DEFAULT_CONFIGS = [Path("config/base.yaml")]
 LOG_PATH = Path("logs") / "workflow.log"
+
+
+def _set_nested(config: dict, dotted_key: str, value: object) -> None:
+    parts = dotted_key.split(".")
+    target = config
+    for key in parts[:-1]:
+        if key not in target or not isinstance(target[key], dict):
+            target[key] = {}
+        target = target[key]
+    target[parts[-1]] = value
+
+
+def _parse_value(raw: str) -> object:
+    try:
+        return ast.literal_eval(raw)
+    except Exception:
+        return raw
+
+
+def apply_overrides(config: dict, overrides: List[str]) -> dict:
+    if not overrides:
+        return config
+
+    for item in overrides:
+        if "=" not in item:
+            logging.warning("Invalid override (missing '='): %s", item)
+            continue
+        key, raw_value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            logging.warning("Invalid override key in %s", item)
+            continue
+        value = _parse_value(raw_value.strip())
+        _set_nested(config, key, value)
+        logging.info("Override applied: %s=%s", key, value)
+    return config
 
 
 def setup_logging(verbose: bool) -> None:
@@ -99,11 +137,19 @@ def main() -> int:
         help="Configuration files (yaml or json)",
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        help="Override configuration values, e.g. --set signals.top_k=5",
+    )
     args = parser.parse_args()
 
     setup_logging(args.verbose)
     logging.info("Loading configuration from %s", args.config)
     config = load_runtime_config([Path(p) for p in args.config])
+    config = apply_overrides(config, args.overrides)
     registry = build_registry(config)
     steps = args.steps or config.get("workflow", {}).get("steps", list(registry.keys()))
 

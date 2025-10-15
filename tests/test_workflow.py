@@ -14,6 +14,7 @@ from scripts import (
     check_env,
     export_signals,
     generate_features,
+    preview_signals,
     prepare_data,
     render_report,
     review_decision,
@@ -91,6 +92,21 @@ def test_render_report_outputs_html(tmp_path: Path) -> None:
     html = output.read_text()
     assert "Strategy Review" in html
     assert "SH600000" in html
+
+
+def test_preview_signals_summary(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    signals = tmp_path / "signals.csv"
+    signals.write_text(
+        """datetime,instrument,action,weight,score
+2025-01-01,SH600000,buy,0.5,1.0
+2025-01-01,SZ000001,buy,0.5,0.8
+2025-01-02,SH600009,sell,0.3,-0.5
+"""
+    )
+    preview_signals.summarize(signals, top=2, by_date=True)
+    out = capsys.readouterr().out
+    assert "signals:" in out
+    assert "top 2 signals" in out
 
 
 def test_review_decision_auto(tmp_path: Path) -> None:
@@ -178,6 +194,13 @@ def test_run_all_build_registry(tmp_path: Path):
     assert "decision" in registry
     registry["decision"]()
     assert (tmp_path / "decision.json").exists()
+
+
+def test_apply_overrides_updates_nested_dict():
+    config = {"signals": {"top_k": 3}, "reports": {"summary": "foo"}}
+    updated = run_all.apply_overrides(config, ["signals.top_k=5", "new.key='value'"])
+    assert updated["signals"]["top_k"] == 5
+    assert updated["new"]["key"] == "value"
 
 
 def test_review_decision_manual(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
