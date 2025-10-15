@@ -28,9 +28,10 @@ from scripts import (
     train_model,
 )
 from scripts.config_utils import load_runtime_config
+from scripts.logging_utils import setup_structured_logging
 
 DEFAULT_CONFIGS = [Path("config/base.yaml")]
-LOG_PATH = Path("logs") / "workflow.log"
+LOG_PATH = Path("logs") / "run_all.jsonl"
 
 
 def _set_nested(config: dict, dotted_key: str, value: object) -> None:
@@ -67,18 +68,6 @@ def apply_overrides(config: dict, overrides: List[str]) -> dict:
         _set_nested(config, key, value)
         logging.info("Override applied: %s=%s", key, value)
     return config
-
-
-def setup_logging(verbose: bool) -> None:
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    handlers = [logging.FileHandler(LOG_PATH, mode="a", encoding="utf-8")]
-    if verbose:
-        handlers.append(logging.StreamHandler(sys.stdout))
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=handlers,
-    )
 
 
 def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
@@ -146,7 +135,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    setup_logging(args.verbose)
+    setup_structured_logging("run_all", verbose=args.verbose, log_file=LOG_PATH)
     logging.info("Loading configuration from %s", args.config)
     config = load_runtime_config([Path(p) for p in args.config])
     config = apply_overrides(config, args.overrides)

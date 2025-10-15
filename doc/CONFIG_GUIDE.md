@@ -121,12 +121,30 @@ indicators:
 python scripts/run_all.py --steps features
 ```
 
+### 3.5 临时覆写配置项
+
+无需修改 YAML 文件即可覆盖单个配置：
+```bash
+python scripts/run_all.py --set signals.top_k=5 --set "reports.summary='reports/latest/custom.json'"
+```
+如需传递列表或数字，请使用 Python 字面量，例如 `--set features.templates=['config/templates/default_indicators.yaml']`。
+
+### 3.6 快速预览信号
+
+生成信号后，可用 CLI 汇总查看：
+```bash
+python scripts/preview_signals.py --signals artifacts/signals.csv --top 10 --by-date
+```
+输出包含信号数量、动作分布以及得分最高的标的列表。
+
 ## 4. 输出目录说明
 
 - `experiments/`：存放 `pred.pkl` 与 `metrics.json`。
 - `artifacts/`：导出的信号 CSV。
 - `features/`：生成的特征文件。
 - `reports/`：回测摘要 (`backtest_summary.json`) 与 HTML 复盘 (`review.html`)。
+- `logs/`：JSON Lines 结构日志（例如 `run_all.jsonl`），便于后续接入日志分析或 MLflow。
+- `features/`、`tmp/` 等临时目录按需可清理。
 
 ## 5. 配置加载优先级
 
@@ -135,6 +153,12 @@ python scripts/run_all.py --steps features
 python scripts/run_all.py --config config/base.yaml config/override.yaml --steps train
 ```
 后加载的文件会覆盖先前配置。
+
+此外还可借助 `scripts/summary.py` 汇总实验：
+```bash
+python scripts/summary.py --format json --output reports/latest/experiment_summary.json
+```
+默认输出表格，也支持 JSON/CSV 形式，统计成功次数、占位次数以及覆盖的标的列表。
 
 ---
 如需更多示例，可参考 `doc/README.md` 与 `doc/hikyuu_qlib_work_plan.md`。
