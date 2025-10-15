@@ -64,7 +64,11 @@ def _flatten_columns(columns: Iterable) -> List[str]:
     return names
 
 
-def _detect_anomalies(df: pd.DataFrame) -> Tuple[List[str], List[str], List[str]]:
+def _detect_anomalies(
+    df: pd.DataFrame,
+    reference_calendar: Optional[pd.DatetimeIndex] = None,
+    per_symbol_calendar: Optional[Dict[str, pd.DatetimeIndex]] = None,
+) -> Tuple[List[str], List[str], List[str]]:
     warnings_missing: List[str] = []
     warnings_negative: List[str] = []
     warnings_duplicates: List[str] = []
@@ -77,8 +81,16 @@ def _detect_anomalies(df: pd.DataFrame) -> Tuple[List[str], List[str], List[str]
     for symbol, group in df.groupby("symbol"):
         if len(group["date"].unique()) <= 1:
             continue
-        date_range = pd.date_range(group["date"].min(), group["date"].max(), freq="B")
-        missing = date_range.difference(group["date"])
+        if per_symbol_calendar and symbol in per_symbol_calendar:
+            expected_days = per_symbol_calendar[symbol]
+            mask = (expected_days >= group["date"].min()) & (expected_days <= group["date"].max())
+            expected_days = expected_days[mask]
+        elif reference_calendar is not None:
+            mask = (reference_calendar >= group["date"].min()) & (reference_calendar <= group["date"].max())
+            expected_days = reference_calendar[mask]
+        else:
+            expected_days = pd.date_range(group["date"].min(), group["date"].max(), freq="B")
+        missing = expected_days.difference(group["date"])  # type: ignore[arg-type]
         if len(missing) > 0:
             warnings_missing.append(f"{symbol}: missing {len(missing)} business days")
 
@@ -114,26 +126,13 @@ def _append_existing_if_needed(
     return combined.reset_index(drop=True)
 
 
-def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool, chunk_days: int) -> bool:
-    run_mode = config.get("run_modes", {}).get("default", "quick")
-    dataset_cfg = config.get("dataset", {}) or {}
-    spec = dataset_cfg.get(run_mode)
-    if not isinstance(spec, dict):
-        raise ValueError(f"Dataset configuration for run mode '{run_mode}' not found")
-
-    data_cfg = config.get("data", {}) or {}
-    provider_uri = str(data_cfg.get("provider_uri", "~/.qlib/qlib_data/cn_data"))
-    region = str(data_cfg.get("region", "cn"))
-    data_source = str(data_cfg.get("data_source") or os.environ.get("QLIB_DATA_SOURCE", "qlib")).lower()
-
-    instruments = _resolve_instruments(data_source, spec, config)
-    start_time = pd.Timestamp(spec.get("start_time") or spec.get("start") or "2018-01-01")
-    end_time = pd.Timestamp(spec.get("end_time") or spec.get("end") or "2020-12-31")
-    freq = spec.get("freq") or spec.get("frequency") or "day"
-
-    if not _init_qlib(provider_uri, region):
-        return False
-
+def _load_qlib_dataset(
+    instruments: Sequence[str] | str,
+    start_time: pd.Timestamp,
+    end_time: pd.Timestamp,
+    freq: str,
+    chunk_days: int,
+) -> pd.DataFrame:
     from qlib.data import D  # type: ignore  # noqa: WPS347
 
     expressions = ["$open", "$high", "$low", "$close", "$volume", "$amount"]
@@ -152,7 +151,7 @@ def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool,
             )
         except Exception as exc:  # pragma: no cover
             LOGGER.warning("Failed to fetch features [%s, %s]: %s", cursor.date(), chunk_end.date(), exc)
-            return False
+            raise
         if df_chunk.empty:
             LOGGER.warning("Empty data returned for chunk [%s, %s]", cursor.date(), chunk_end.date())
         else:
@@ -167,20 +166,92 @@ def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool,
         cursor = chunk_end + pd.Timedelta(days=1)
 
     if not chunks:
-        LOGGER.warning("No data fetched from Qlib.")
-        return False
+        raise ValueError("No data fetched from Qlib.")
 
     df_all = pd.concat(chunks, axis=0, ignore_index=True)
     df_all.rename(columns={"datetime": "date", "instrument": "symbol"}, inplace=True)
     df_all["date"] = pd.to_datetime(df_all["date"])
-    df_all = df_all.drop_duplicates(subset=["date", "symbol"]).sort_values(["date", "symbol"]).reset_index(drop=True)
+    return df_all.drop_duplicates(subset=["date", "symbol"]).sort_values(["date", "symbol"]).reset_index(drop=True)
+
+
+def _load_hikyuu_dataset(
+    instruments: Sequence[str],
+    start_time: pd.Timestamp,
+    end_time: pd.Timestamp,
+    freq: str,
+) -> Tuple[pd.DataFrame, Dict[str, pd.DatetimeIndex]]:
+    import hikyuu as hk
+    from hikyuu_integration import HikyuuDataLoader  # type: ignore
+
+    loader = HikyuuDataLoader(
+        fields=("OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "AMOUNT"),
+        freq=freq,
+    )
+    data = loader.load(instruments, start_time.strftime("%Y-%m-%d"), end_time.strftime("%Y-%m-%d"))
+    if data.empty:
+        raise ValueError("Hikyuu returned empty dataset")
+
+    feature_df = data.loc[:, "feature"].copy()
+    feature_df.columns = [col.lower() for col in feature_df.columns]
+    feature_df = feature_df.reset_index().rename(columns={"datetime": "date", "instrument": "symbol"})
+    feature_df["date"] = pd.to_datetime(feature_df["date"])
+    feature_df = feature_df.sort_values(["date", "symbol"]).reset_index(drop=True)
+
+    calendar_map: Dict[str, pd.DatetimeIndex] = {}
+    sm = hk.StockManager.instance()
+    for symbol in instruments:
+        hk_code = symbol[:2].lower() + symbol[2:]
+        stock = sm[hk_code]
+        query = hk.Query(hk.Datetime(start_time.strftime("%Y-%m-%d")), hk.Datetime(end_time.strftime("%Y-%m-%d")), loader._hk_freq)  # type: ignore[attr-defined]
+        trading_days = stock.get_trading_calendar(query)
+        calendar_map[symbol] = pd.to_datetime([dt.datetime() for dt in trading_days])
+
+    return feature_df, calendar_map
+
+
+def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool, chunk_days: int) -> bool:
+    run_mode = config.get("run_modes", {}).get("default", "quick")
+    dataset_cfg = config.get("dataset", {}) or {}
+    spec = dataset_cfg.get(run_mode)
+    if not isinstance(spec, dict):
+        raise ValueError(f"Dataset configuration for run mode '{run_mode}' not found")
+
+    data_cfg = config.get("data", {}) or {}
+    provider_uri = str(data_cfg.get("provider_uri", "~/.qlib/qlib_data/cn_data"))
+    region = str(data_cfg.get("region", "cn"))
+    data_source = str(data_cfg.get("data_source") or os.environ.get("QLIB_DATA_SOURCE", "qlib")).lower()
+
+    instruments = _resolve_instruments(data_source, spec, config)
+    if isinstance(instruments, str):
+        instrument_list: List[str] = [instruments]
+    else:
+        instrument_list = [str(code).upper() for code in instruments]
+
+    start_time = pd.Timestamp(spec.get("start_time") or spec.get("start") or "2018-01-01")
+    end_time = pd.Timestamp(spec.get("end_time") or spec.get("end") or "2020-12-31")
+    freq = spec.get("freq") or spec.get("frequency") or "day"
+
+    if not _init_qlib(provider_uri, region):
+        return False
+
+    per_symbol_calendar: Dict[str, pd.DatetimeIndex] = {}
+
+    try:
+        if data_source == "hikyuu":
+            df_all, per_symbol_calendar = _load_hikyuu_dataset(instrument_list, start_time, end_time, freq)
+        else:
+            df_all = _load_qlib_dataset(instruments, start_time, end_time, freq, chunk_days)
+    except Exception as exc:  # pragma: no cover
+        LOGGER.warning("Failed to build dataset: %s", exc)
+        return False
 
     if append:
         df_all = _append_existing_if_needed(output_path, df_all, append=True)
 
-    missing, negatives, duplicates = _detect_anomalies(df_all)
+    reference_calendar = pd.Index(sorted(df_all["date"].unique()))
+    missing, negatives, duplicates = _detect_anomalies(df_all, reference_calendar, per_symbol_calendar or None)
     for msg in missing:
-        LOGGER.warning("Missing data: %s", msg)
+        LOGGER.warning("Missing data (possible suspension/holiday): %s", msg)
     for msg in negatives:
         LOGGER.warning("Non-positive data: %s", msg)
     for msg in duplicates:
