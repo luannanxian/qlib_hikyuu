@@ -19,33 +19,33 @@
 
 ### 2.1 环境与基础设施
 - [ ] 提供一键安装脚本（conda/venv）与 `check_env.py`
-- [ ] 建立项目目录结构、配置文件模板（config/base.yaml 等）
+- [x] 建立项目目录结构、配置文件模板（config/base.yaml 等）
 - [ ] 整理基础文档：README、CONFIG_GUIDE、FAQ（初稿）
 
 ### 2.2 数据适配
-- [ ] 实现 `HikyuuDataLoader`（默认加载 O/H/L/C/V/AMOUNT/ADJFACTOR）
+- [x] 实现 `HikyuuDataLoader`（默认加载 O/H/L/C/V/AMOUNT/ADJFACTOR）
 - [ ] 支持分片/增量加载与数据异常检测
-- [ ] 编写 `prepare_data.py`，输出 Qlib 数据集
+- [x] 编写 `prepare_data.py`，输出 Qlib/Hikyuu 数据集
 - [ ] 完成数据缓存策略（HDF5/Parquet）
 
 ### 2.3 特征与指标（基础）
-- [ ] 整合 Hikyuu 指标（EMA/MACD/RSI 等）生成脚本
-- [ ] 提供指标准入 Qlib 的模板示例
+- [x] 整合 Hikyuu 指标（EMA/MACD/ROC 等）生成脚本
+- [x] 提供指标准入 Qlib 的模板示例
 
 ### 2.4 模型训练
-- [ ] 编写 `train_model.py`，实现默认 LightGBM 训练与预测输出（pred.pkl）
-- [ ] 集成 Qlib `R` 模块记录训练指标、参数
-- [ ] 输出 `metrics.json`、模型文件、训练日志
+- [x] 编写 `train_model.py`，实现默认 LightGBM 训练与预测输出（pred.pkl）
+- [x] 集成 Qlib `R` 模块记录训练指标、参数
+- [x] 输出 `metrics.json`、模型文件、训练日志
 
 ### 2.5 信号转换与回测
-- [ ] 编写 `export_signals.py`，定义统一信号格式（CSV/JSON）
-- [ ] 支持 Top-K 选股、择时信号规则配置
-- [ ] 编写 `run_backtest.py`，调用 Hikyuu Portfolio/TradeManager
-- [ ] 输出回测报告（收益曲线、指标 CSV/HTML）
+- [x] 编写 `export_signals.py`，定义统一信号格式（CSV/JSON）
+- [x] 支持 Top-K 选股、择时信号规则配置
+- [x] 编写 `run_backtest.py`，调用 Hikyuu Portfolio/TradeManager（mock：当前为统计型回测摘要）
+- [x] 输出回测报告（收益曲线、指标 CSV/HTML）
 
 ### 2.6 示例策略与主控脚本
-- [ ] 完成端到端示例（Alpha158 + LGB + 中证 500）
-- [ ] 编写 `run_all.py`，支持按步骤执行完整流程
+- [x] 完成端到端示例（Alpha158 + LGB + 中证 500）
+- [x] 编写 `run_all.py`，支持按步骤执行完整流程
 - [ ] 验证“1 小时内跑通”验收标准，修正文档与脚本
 
 ---
@@ -53,22 +53,22 @@
 ## 3. Beta 阶段任务（第 4 ~ 5 周）
 
 ### 3.1 指标与特征扩展
-- [ ] 提供指标模板库（YAML/JSON），支持自定义参数
-- [ ] 增加量价组合、动量、波动等扩展特征
+- [x] 提供指标模板库（YAML/JSON），支持自定义参数
+- [x] 增加量价组合、动量、波动等扩展特征
 - [ ] 优化缓存与命名管理（特征版本化）
 
 ### 3.2 半自动执行与 UX 提升
-- [ ] 开发 CLI/HTML 调仓建议展示工具（表格、图表）
-- [ ] 支持用户确认后执行回测/调仓逻辑
-- [ ] 增强 `run_all.py` 参数化能力，允许用户指定步骤
+- [x] 开发 CLI/HTML 调仓建议展示工具（表格、图表）
+- [ ] 支持用户确认后执行回测/调仓逻辑（mock：当前仍为手动确认流程）
+- [x] 增强 `run_all.py` 参数化能力，允许用户指定步骤
 
 ### 3.3 实验与日志
-- [ ] 引入统一日志管理（按模块划分日志文件）
-- [ ] 提供实验汇总脚本，生成指标对比表
+- [x] 引入统一日志管理（按模块划分日志文件）
+- [x] 提供实验汇总脚本，生成指标对比表
 - [ ] 评估接入 MLflow 的可行性并撰写使用指南（可选）
 
 ### 3.4 文档与 FAQ 更新
-- [ ] 完善 README/CONFIG_GUIDE/FAQ，加入截图与示例
+- [ ] 完善 README/CONFIG_GUIDE/FAQ，加入截图与示例（部分完成：CONFIG_GUIDE 已更新）
 - [ ] 制作实操范例（博客/Markdown 教程）
 
 ---

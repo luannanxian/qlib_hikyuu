@@ -30,7 +30,8 @@ def test_prepare_data_creates_file(tmp_path: Path) -> None:
     output = tmp_path / "prepared.txt"
     prepare_data.run(output)
     assert output.exists()
-    assert "Placeholder" in output.read_text()
+    content = output.read_text()
+    assert content.strip()
 
 
 def test_generate_features_from_template(tmp_path: Path) -> None:

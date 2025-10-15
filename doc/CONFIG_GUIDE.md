@@ -139,6 +139,19 @@ python scripts/preview_signals.py --signals artifacts/signals.csv --top 10 --by-
 ```
 输出包含信号数量、动作分布以及得分最高的标的列表。
 
+### 3.7 数据准备/增量更新
+
+`prepare_data.py` 支持按 chunks 抓取 Hikyuu/Qlib 数据并执行基础质量检测：
+```bash
+python scripts/prepare_data.py \
+  --config config/base.yaml \
+  --output data/prepared_dataset.csv \
+  --chunk-days 90 \
+  --append
+```
+- `--chunk-days` 控制单次请求的天数，适合长区间分批加载。
+- `--append` 开启后会读取现有 CSV，只追加新日期，并在日志中提示缺失交易日、非正数等异常。
+
 ## 4. 输出目录说明
 
 - `experiments/`：存放 `pred.pkl` 与 `metrics.json`。
