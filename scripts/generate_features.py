@@ -105,7 +105,7 @@ def _resolve_runtime_config(template: Dict[str, object]) -> Dict[str, object]:
     return cfg
 
 
-def _compute_with_qlib(runtime_cfg: Dict[str, object], output: Path) -> bool:
+def _init_qlib_if_needed(runtime_cfg: Dict[str, object]) -> bool:
     try:
         import qlib
         from qlib.constant import REG_CN, REG_US, REG_TW
@@ -117,12 +117,22 @@ def _compute_with_qlib(runtime_cfg: Dict[str, object], output: Path) -> bool:
     region_map = {"cn": REG_CN, "us": REG_US, "tw": REG_TW}
     region = region_map.get(str(runtime_cfg["region"]).lower(), REG_CN)
 
-    qlib.init(
-        provider_uri=os.path.expanduser(str(runtime_cfg["provider_uri"])),
-        region=region,
-        expression_cache=None,
-        dataset_cache=None,
-    )
+    if not getattr(qlib.config.C, "_registered", False):  # type: ignore[attr-defined]
+        qlib.init(
+            provider_uri=os.path.expanduser(str(runtime_cfg["provider_uri"])),
+            region=region,
+            expression_cache=None,
+            dataset_cache=None,
+        )
+    return True
+
+
+def _compute_with_qlib(runtime_cfg: Dict[str, object], output: Path) -> bool:
+    if not _init_qlib_if_needed(runtime_cfg):
+        return False
+
+    import qlib  # type: ignore  # noqa: WPS347
+    from qlib.data import D  # type: ignore  # noqa: WPS347
 
     indicators: Iterable[Dict[str, object]] = runtime_cfg["indicators"]
     expressions: List[str] = []
