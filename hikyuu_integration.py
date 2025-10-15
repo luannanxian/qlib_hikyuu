@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 import os
-import shutil
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -31,40 +30,6 @@ from qlib.log import get_module_logger
 from pathlib import Path
 
 _SETUP_LOGGER = logging.getLogger("hikyuu_integration.setup")
-
-
-def _is_hikyuu_home_populated(home: Path) -> bool:
-    """判断指定目录是否包含 Hikyuu 的关键文件。"""
-    if not home.exists():
-        return False
-    markers = ["hikyuu.ini", "hub.db", "hub_cache", "data"]
-    return any((home / marker).exists() for marker in markers)
-
-
-def _mirror_hikyuu_home(src: Path, dest: Path) -> None:
-    """将用户默认 Hikyuu 目录同步到项目内置目录，以便离线使用。"""
-    if not _is_hikyuu_home_populated(src):
-        return
-    dest.mkdir(parents=True, exist_ok=True)
-    for entry in src.iterdir():
-        target = dest / entry.name
-        if entry.is_dir():
-            try:
-                shutil.copytree(
-                    entry,
-                    target,
-                    dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns(".git", ".git*", "__pycache__"),
-                )
-            except PermissionError:
-                _SETUP_LOGGER.warning("无法复制目录 %s，权限不足，已跳过。", entry)
-            except shutil.Error as err:
-                _SETUP_LOGGER.warning("复制目录 %s 时出现部分错误：%s", entry, err)
-        else:
-            try:
-                shutil.copy2(entry, target)
-            except PermissionError:
-                _SETUP_LOGGER.warning("无法复制文件 %s，权限不足，已跳过。", entry)
 
 
 def _resolve_hikyuu_home() -> Tuple[str, bool]:
@@ -82,15 +47,8 @@ def _resolve_hikyuu_home() -> Tuple[str, bool]:
     project_home = project_root / ".hikyuu_home"
     default_home = Path.home() / ".hikyuu"
 
-    # 若用户默认目录有内容，先同步一份到项目内置目录，方便后续独立运行。
-    _mirror_hikyuu_home(default_home, project_home)
-
-    if _is_hikyuu_home_populated(default_home):
+    if default_home.exists():
         return str(default_home), False
-
-    # 默认目录为空时，尝试使用项目内置目录。
-    if _is_hikyuu_home_populated(project_home):
-        return str(project_home), True
 
     project_home.mkdir(parents=True, exist_ok=True)
     return str(project_home), True
