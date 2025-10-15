@@ -1,14 +1,24 @@
-name: basic_indicators
+name: default_feature_set
 frequency: day
+instruments:
+  - SH600000
+  - SZ000001
+start: "2018-01-01"
+end: "2020-12-31"
 indicators:
-  - type: EMA
+  - name: close_sma_5
+    type: SMA
+    field: $close
     window: 5
-    source: CLOSE
-  - type: EMA
+  - name: close_ema_10
+    type: EMA
+    field: $close
     window: 10
-    source: CLOSE
-  - type: RSI
-    window: 14
-    source: CLOSE
-  - type: VOLUME_RATIO
+  - name: close_roc_5
+    type: ROC
+    field: $close
     window: 5
+  - name: volume_sma_20
+    type: SMA
+    field: $volume
+    window: 20

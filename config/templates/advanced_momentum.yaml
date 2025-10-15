@@ -1,19 +1,30 @@
 name: advanced_momentum
 frequency: day
+instruments:
+  - SH600000
+  - SZ000001
+start: "2017-01-01"
+end: "2020-12-31"
 indicators:
-  - type: EMA
-    source: CLOSE
+  - name: close_ema_3
+    type: EMA
+    field: $close
     window: 3
-  - type: EMA
-    source: CLOSE
+  - name: close_ema_6
+    type: EMA
+    field: $close
     window: 6
-  - type: MACD
-    fast: 12
-    slow: 26
-    signal: 9
-  - type: RSI
-    source: CLOSE
-    window: 9
-  - type: STOCH
+  - name: close_ema_12
+    type: EMA
+    field: $close
+    window: 12
+  - name: macd_diff
+    expression: "EMA($close, 12) - EMA($close, 26)"
+  - name: close_roc_5
+    type: ROC
+    field: $close
+    window: 5
+  - name: close_volatility_14
+    type: volatility
+    field: $close
     window: 14
-    smoothing: 3
