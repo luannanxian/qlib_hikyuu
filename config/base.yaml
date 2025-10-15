@@ -9,6 +9,7 @@ data:
   provider_uri: "~/.qlib/qlib_data/cn_data"
   output_dir: data
   features_dir: features
+  data_source: hikyuu
 
 features:
   template: config/templates/default_indicators.yaml

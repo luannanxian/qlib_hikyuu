@@ -94,7 +94,15 @@ def _build_dataset_and_model(config: Dict[str, object]) -> Tuple[Dict[str, objec
     if not isinstance(spec, dict):
         raise ValueError(f"Dataset configuration for run mode '{run_mode}' not found")
 
-    data_source = os.environ.get("QLIB_DATA_SOURCE", "qlib").lower()
+    data_cfg = config.get("data", {}) or {}
+    cfg_source = data_cfg.get("data_source") or data_cfg.get("source")
+    env_source = os.environ.get("QLIB_DATA_SOURCE")
+    if cfg_source:
+        data_source = str(cfg_source).lower()
+        if not env_source:
+            os.environ["QLIB_DATA_SOURCE"] = data_source
+    else:
+        data_source = (env_source or "qlib").lower()
     handler_cfg = _build_handler_config(spec, data_source, config)
     segments_cfg = spec.get("segments", {})
     if not isinstance(segments_cfg, dict):

@@ -203,6 +203,33 @@ def test_apply_overrides_updates_nested_dict():
     assert updated["new"]["key"] == "value"
 
 
+def test_train_model_honors_config_data_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("QLIB_DATA_SOURCE", raising=False)
+    config = {
+        "run_modes": {"default": "quick", "supported": ["quick"]},
+        "dataset": {
+            "quick": {
+                "start_time": "2020-01-01",
+                "end_time": "2020-12-31",
+                "fit_start_time": "2020-01-01",
+                "fit_end_time": "2020-06-30",
+                "instruments": "csi100",
+                "segments": {
+                    "train": ["2020-01-01", "2020-06-30"],
+                    "valid": ["2020-07-01", "2020-09-30"],
+                    "test": ["2020-10-01", "2020-12-31"],
+                },
+            }
+        },
+        "data": {"data_source": "hikyuu"},
+        "hikyuu": {"instruments": ["SH600000"]},
+        "model": {"class": "LGBModel", "module_path": "qlib.contrib.model.gbdt", "kwargs": {}},
+    }
+    dataset_cfg, _ = train_model._build_dataset_and_model(config)
+    handler = dataset_cfg["kwargs"]["handler"]
+    assert handler["module_path"] == "hikyuu_integration"
+
+
 def test_review_decision_manual(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     signals = tmp_path / "signals.csv"
     signals.write_text("datetime,instrument,action,weight,score\n2025-01-01,SH600000,buy,0.5,1.0\n")

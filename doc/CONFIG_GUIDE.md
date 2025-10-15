@@ -18,6 +18,7 @@ data:                  # 数据与输出目录
   provider_uri: "~/.qlib/qlib_data/cn_data"
   output_dir: data
   features_dir: features
+  data_source: hikyuu   # 默认使用 Hikyuu 数据源，可改为 qlib
 
 workflow:              # 默认工作流步骤
   steps: [check, prepare, train, features, signals, backtest, summary, review]
@@ -86,6 +87,7 @@ python scripts/run_all.py --config config/base.yaml --steps train
 若需要自定义模式，可在 `dataset` 下新增配置。
 
 ### 3.2 使用 Hikyuu 数据源
+在 `config/base.yaml` 的 `data.data_source` 填写 `hikyuu` 即可，也可通过环境变量覆盖：
 ```bash
 export QLIB_DATA_SOURCE=hikyuu
 export QLIB_HIKYUU_INSTRUMENTS="SH600000,SZ000001"
