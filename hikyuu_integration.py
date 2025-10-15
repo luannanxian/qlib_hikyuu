@@ -13,24 +13,95 @@
 #   - 其余训练 / 回测流程保持不变。
 # --------------------------------------------------------------------------
 
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 import os
+import shutil
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
+from qlib.contrib.data.handler import check_transform_proc
 from qlib.data.dataset.handler import DataHandlerLP
 from qlib.data.dataset.loader import DataLoader
 from qlib.log import get_module_logger
+from pathlib import Path
+
+_SETUP_LOGGER = logging.getLogger("hikyuu_integration.setup")
+
+
+def _is_hikyuu_home_populated(home: Path) -> bool:
+    """判断指定目录是否包含 Hikyuu 的关键文件。"""
+    if not home.exists():
+        return False
+    markers = ["hikyuu.ini", "hub.db", "hub_cache", "data"]
+    return any((home / marker).exists() for marker in markers)
+
+
+def _mirror_hikyuu_home(src: Path, dest: Path) -> None:
+    """将用户默认 Hikyuu 目录同步到项目内置目录，以便离线使用。"""
+    if not _is_hikyuu_home_populated(src):
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for entry in src.iterdir():
+        target = dest / entry.name
+        if entry.is_dir():
+            try:
+                shutil.copytree(
+                    entry,
+                    target,
+                    dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(".git", ".git*", "__pycache__"),
+                )
+            except PermissionError:
+                _SETUP_LOGGER.warning("无法复制目录 %s，权限不足，已跳过。", entry)
+            except shutil.Error as err:
+                _SETUP_LOGGER.warning("复制目录 %s 时出现部分错误：%s", entry, err)
+        else:
+            try:
+                shutil.copy2(entry, target)
+            except PermissionError:
+                _SETUP_LOGGER.warning("无法复制文件 %s，权限不足，已跳过。", entry)
+
+
+def _resolve_hikyuu_home() -> Tuple[str, bool]:
+    """
+    解析 Hikyuu 的工作目录。
+    返回值:
+      - 选中的 HKU_HOME 路径
+      - 是否需要临时覆盖 HOME 环境变量
+    """
+    env_home = os.environ.get("HKU_HOME")
+    if env_home:
+        return env_home, False
+
+    project_root = Path(__file__).resolve().parent
+    project_home = project_root / ".hikyuu_home"
+    default_home = Path.home() / ".hikyuu"
+
+    # 若用户默认目录有内容，先同步一份到项目内置目录，方便后续独立运行。
+    _mirror_hikyuu_home(default_home, project_home)
+
+    if _is_hikyuu_home_populated(default_home):
+        return str(default_home), False
+
+    # 默认目录为空时，尝试使用项目内置目录。
+    if _is_hikyuu_home_populated(project_home):
+        return str(project_home), True
+
+    project_home.mkdir(parents=True, exist_ok=True)
+    return str(project_home), True
+
 
 _ORIG_HOME = os.environ.get("HOME")
-_HK_HOME = os.environ.get("HKU_HOME", os.path.join(os.getcwd(), ".hikyuu_home"))
-os.makedirs(_HK_HOME, exist_ok=True)
-os.environ["HOME"] = _HK_HOME
+_HK_HOME, _OVERRIDE_HOME = _resolve_hikyuu_home()
+if _OVERRIDE_HOME:
+    os.environ["HOME"] = _HK_HOME
 os.environ["HKU_HOME"] = _HK_HOME
+_SETUP_LOGGER.info("Hikyuu home resolved to %s (override_home=%s)", _HK_HOME, _OVERRIDE_HOME)
 try:
     import hikyuu as hk
 except ImportError as exc:  # pragma: no cover - 强调运行时依赖
@@ -42,6 +113,17 @@ finally:
         os.environ["HOME"] = _ORIG_HOME
     else:
         os.environ.pop("HOME", None)
+
+# 若存在 hikyuu.ini 则显式初始化，确保数据驱动可用
+_HK_CONFIG = Path(_HK_HOME) / "hikyuu.ini"
+if _HK_CONFIG.exists():
+    try:
+        _SETUP_LOGGER.info("Initializing Hikyuu with config %s", _HK_CONFIG)
+        hk.hikyuu_init(str(_HK_CONFIG))
+    except Exception as exc:  # pragma: no cover - 依赖外部库
+        _SETUP_LOGGER.warning("调用 hikyuu_init(%s) 失败：%s", _HK_CONFIG, exc)
+else:
+    _SETUP_LOGGER.warning("未在 %s 找到 hikyuu.ini，Hikyuu 将使用默认配置。", _HK_HOME)
 
 logger = get_module_logger("hikyuu_integration", logging.INFO)
 
@@ -66,6 +148,22 @@ def _ensure_datetime(df: pd.DataFrame, column: str = "datetime") -> pd.Series:
     else:
         dt = pd.to_datetime(dt)
     return dt
+
+
+def _is_valid_stock(stock: "hk.Stock") -> bool:
+    """兼容不同版本 Hikyuu 的股票有效性检查。"""
+    for attr in ("isNull", "is_null", "is_valid", "isValid"):
+        if not hasattr(stock, attr):
+            continue
+        value = getattr(stock, attr)
+        try:
+            result = value() if callable(value) else bool(value)
+        except Exception:  # pragma: no cover - 依赖外部库实现
+            continue
+        if attr in {"isNull", "is_null"}:
+            return not result
+        return bool(result)
+    return stock is not None
 
 
 @dataclass
@@ -94,12 +192,17 @@ class HikyuuDataLoader(DataLoader):
         for inst in instruments:
             hk_code = _to_hikyuu_code(inst)
             stock = self._sm[hk_code]
-            if stock.isNull():
+            if not _is_valid_stock(stock):
                 logger.warning("Hikyuu 中找不到标的 %s（转换后 %s），跳过。", inst, hk_code)
                 continue
 
-            k_data = stock.getKData(self._build_query(start_time, end_time))
-            if k_data.size() == 0:
+            query = self._build_query(start_time, end_time)
+            if hasattr(stock, "get_kdata"):
+                k_data = stock.get_kdata(query)
+            else:
+                k_data = stock.getKData(query)
+            size = len(k_data) if hasattr(k_data, "__len__") else getattr(k_data, "size", lambda: 0)()
+            if size == 0:
                 logger.warning("标的 %s 在区间 [%s, %s] 无数据，跳过。", inst, start_time, end_time)
                 continue
 
@@ -141,29 +244,27 @@ class HikyuuDataLoader(DataLoader):
     # 辅助 ---------------------------------------------------------------------------
     def _build_query(self, start: Optional[str], end: Optional[str]) -> hk.Query:
         if start or end:
-            start_date = pd.Timestamp(start) if start else None
-            end_date = pd.Timestamp(end) if end else None
-            start_str = start_date.strftime("%Y-%m-%d") if start_date else ""
-            end_str = end_date.strftime("%Y-%m-%d") if end_date else ""
             if hasattr(hk, "QueryByDate"):
+                start_date = pd.Timestamp(start) if start else None
+                end_date = pd.Timestamp(end) if end else None
+                start_str = start_date.strftime("%Y-%m-%d") if start_date else ""
+                end_str = end_date.strftime("%Y-%m-%d") if end_date else ""
                 return hk.QueryByDate(start_str, end_str, self._hk_freq)
-            if hasattr(hk, "Query"):
-                try:
-                    return hk.Query(start_str, end_str, self._hk_freq)
-                except TypeError:
-                    pass
+            start_dt = hk.Datetime(start) if start else hk.Datetime.min()
+            end_dt = hk.Datetime(end) if end else None
+            return hk.Query(start_dt, end_dt, self._hk_freq)
         if hasattr(hk, "Query"):
             try:
                 return hk.Query(-1, self._hk_freq)
             except TypeError:
                 return hk.Query(-1)
-        raise RuntimeError("当前 hikyuu 版本缺少 Query / QueryByDate 接口，无法构造查询。")
+        raise RuntimeError("当前 hikyuu 版本缺少可用的 Query 接口，无法构造查询。")
 
     def _to_dataframe(self, k_data: "hk.KData") -> pd.DataFrame:
-        if hasattr(k_data, "to_df"):
-            df = k_data.to_df()
-        elif hasattr(k_data, "to_pandas"):
+        if hasattr(k_data, "to_pandas"):
             df = k_data.to_pandas()
+        elif hasattr(k_data, "to_df"):
+            df = k_data.to_df()
         else:
             # 逐条构建 DataFrame
             records = []
@@ -207,6 +308,8 @@ class HikyuuAlphaHandler(DataHandlerLP):
         **kwargs,
     ):
         loader = HikyuuDataLoader(fields=fields, freq=freq, label_shift=label_shift)
+        fit_start = fit_start_time or start_time
+        fit_end = fit_end_time or end_time
 
         default_infer = infer_processors or [
             {"class": "Fillna", "kwargs": {"fields_group": "feature"}},
@@ -216,20 +319,21 @@ class HikyuuAlphaHandler(DataHandlerLP):
             {"class": "DropnaLabel"},
             {"class": "CSRankNorm", "kwargs": {"fields_group": "label"}},
         ]
+        infer_config = check_transform_proc(default_infer, fit_start, fit_end)
+        learn_config = check_transform_proc(default_learn, fit_start, fit_end)
 
         super().__init__(
             instruments=instruments,
             start_time=start_time,
             end_time=end_time,
-            freq=freq,
             data_loader=loader,
-            infer_processors=default_infer,
-            learn_processors=default_learn,
-            fit_start_time=fit_start_time or start_time,
-            fit_end_time=fit_end_time or end_time,
+            infer_processors=infer_config,
+            learn_processors=learn_config,
             drop_raw=True,
             **kwargs,
         )
+        self.fit_start_time = fit_start
+        self.fit_end_time = fit_end
 
 
 __all__ = ["HikyuuDataLoader", "HikyuuAlphaHandler"]
