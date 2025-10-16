@@ -28,7 +28,7 @@ from scripts.config_utils import load_runtime_config, load_yaml
 
 def test_prepare_data_creates_file(tmp_path: Path) -> None:
     output = tmp_path / "prepared.txt"
-    prepare_data.run(output)
+    prepare_data.run(output, cache_formats=["csv"])
     assert output.exists()
     content = output.read_text()
     assert content.strip()

@@ -24,9 +24,9 @@
 
 ### 2.2 数据适配
 - [x] 实现 `HikyuuDataLoader`（默认加载 O/H/L/C/V/AMOUNT/ADJFACTOR）
-- [ ] 支持分片/增量加载与数据异常检测
+- [x] 支持分片/增量加载与数据异常检测
 - [x] 编写 `prepare_data.py`，输出 Qlib/Hikyuu 数据集
-- [ ] 完成数据缓存策略（HDF5/Parquet）
+- [x] 完成数据缓存策略（HDF5/Parquet）
 
 ### 2.3 特征与指标（基础）
 - [x] 整合 Hikyuu 指标（EMA/MACD/ROC 等）生成脚本

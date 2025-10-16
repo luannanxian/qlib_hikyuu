@@ -17,6 +17,7 @@ from scripts.logging_utils import setup_structured_logging
 
 DEFAULT_OUTPUT = Path("data") / "prepared_dataset.csv"
 DEFAULT_CONFIGS = [Path("config/base.yaml")]
+DEFAULT_FORMATS = ("csv", "hdf", "parquet")
 LOGGER = logging.getLogger("prepare-data")
 
 
@@ -126,6 +127,30 @@ def _append_existing_if_needed(
     return combined.reset_index(drop=True)
 
 
+def _persist_dataset(df: pd.DataFrame, output_path: Path, formats: Optional[Sequence[str]]) -> None:
+    format_list = [fmt.lower() for fmt in (formats or DEFAULT_FORMATS)]
+
+    if "csv" in format_list:
+        df.to_csv(output_path, index=False)
+        LOGGER.info("Saved CSV cache to %s", output_path)
+
+    if "hdf" in format_list:
+        hdf_path = output_path.with_suffix(".h5")
+        try:
+            df.to_hdf(hdf_path, key="data", mode="w")
+            LOGGER.info("Saved HDF5 cache to %s", hdf_path)
+        except Exception as exc:  # pragma: no cover
+            LOGGER.warning("Failed to write HDF5 cache %s: %s", hdf_path, exc)
+
+    if "parquet" in format_list:
+        pq_path = output_path.with_suffix(".parquet")
+        try:
+            df.to_parquet(pq_path, index=False)
+            LOGGER.info("Saved Parquet cache to %s", pq_path)
+        except Exception as exc:  # pragma: no cover
+            LOGGER.warning("Failed to write Parquet cache %s: %s", pq_path, exc)
+
+
 def _load_qlib_dataset(
     instruments: Sequence[str] | str,
     start_time: pd.Timestamp,
@@ -209,7 +234,12 @@ def _load_hikyuu_dataset(
     return feature_df, calendar_map
 
 
-def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool, chunk_days: int) -> bool:
+def _prepare_dataset(
+    config: Dict[str, object],
+    output_path: Path,
+    append: bool,
+    chunk_days: int,
+) -> Optional[pd.DataFrame]:
     run_mode = config.get("run_modes", {}).get("default", "quick")
     dataset_cfg = config.get("dataset", {}) or {}
     spec = dataset_cfg.get(run_mode)
@@ -232,7 +262,7 @@ def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool,
     freq = spec.get("freq") or spec.get("frequency") or "day"
 
     if not _init_qlib(provider_uri, region):
-        return False
+        return None
 
     per_symbol_calendar: Dict[str, pd.DatetimeIndex] = {}
 
@@ -243,7 +273,7 @@ def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool,
             df_all = _load_qlib_dataset(instruments, start_time, end_time, freq, chunk_days)
     except Exception as exc:  # pragma: no cover
         LOGGER.warning("Failed to build dataset: %s", exc)
-        return False
+        return None
 
     if append:
         df_all = _append_existing_if_needed(output_path, df_all, append=True)
@@ -257,10 +287,8 @@ def _prepare_dataset(config: Dict[str, object], output_path: Path, append: bool,
     for msg in duplicates:
         LOGGER.warning("Duplicates: %s", msg)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    df_all.to_csv(output_path, index=False)
-    LOGGER.info("Prepared dataset with %d rows and %d columns -> %s", len(df_all), len(df_all.columns), output_path)
-    return True
+    df_all = df_all.sort_values(["date", "symbol"]).reset_index(drop=True)
+    return df_all
 
 
 def run(
@@ -268,11 +296,16 @@ def run(
     config_paths: Optional[Sequence[Path]] = None,
     append: bool = False,
     chunk_days: int = 120,
+    cache_formats: Optional[Sequence[str]] = None,
 ) -> None:
     config = load_runtime_config(list(config_paths or DEFAULT_CONFIGS)) or {}
     success = False
     try:
-        success = _prepare_dataset(config, output, append, chunk_days)
+        df = _prepare_dataset(config, output, append, chunk_days)
+        if df is not None:
+            _persist_dataset(df, output, cache_formats or DEFAULT_FORMATS)
+            LOGGER.info("Prepared dataset with %d rows and %d columns", len(df), len(df.columns))
+            success = True
     except Exception as exc:  # pragma: no cover
         LOGGER.warning("prepare_data failed: %s", exc)
         success = False
@@ -291,11 +324,23 @@ def main() -> int:
     parser.add_argument("--config", nargs="+", type=Path, default=DEFAULT_CONFIGS)
     parser.add_argument("--append", action="store_true", help="追加模式，仅补充新日期的数据")
     parser.add_argument("--chunk-days", type=int, default=120, help="按天分片抓取的窗口大小")
+    parser.add_argument(
+        "--cache-format",
+        action="append",
+        dest="cache_formats",
+        help="指定缓存格式，可重复使用：csv、hdf、parquet（默认全部保存）",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     setup_structured_logging("prepare-data", verbose=args.verbose)
-    run(args.output, args.config, append=args.append, chunk_days=args.chunk_days)
+    run(
+        args.output,
+        args.config,
+        append=args.append,
+        chunk_days=args.chunk_days,
+        cache_formats=args.cache_formats,
+    )
     return 0
 
 

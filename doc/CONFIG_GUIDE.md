@@ -151,6 +151,7 @@ python scripts/prepare_data.py \
 ```
 - `--chunk-days` 控制单次请求的天数，适合长区间分批加载。
 - `--append` 开启后会读取现有 CSV，只追加新日期，并在日志中提示缺失交易日、非正数等异常。
+- 默认同时输出 `CSV/HDF5/Parquet` 缓存；可通过多次指定 `--cache-format` 控制保存格式。
 
 ## 4. 输出目录说明
 

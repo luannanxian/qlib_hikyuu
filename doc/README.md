@@ -5,7 +5,7 @@
 ## 功能概览
 
 - **环境检测**：`scripts/check_env.py` 快速验证 Python 环境、依赖包与关键环境变量。
-- **数据准备**：`scripts/prepare_data.py` 占位逻辑，后续可接入 Hikyuu 数据提取。
+- **数据准备**：`scripts/prepare_data.py` 直接调用 Hikyuu/Qlib 数据源生成训练集，支持分片抓取、增量写入，并同步产出 CSV/HDF5/Parquet 缓存。
 - **特征生成**：`scripts/generate_features.py` 基于 YAML 模板生成技术指标特征。
 - **模型训练**：`scripts/train_model.py` 读取配置自动构建数据集与模型，若 Qlib 环境不可用则自动回退到 placeholder。
 - **信号导出**：`scripts/export_signals.py` 将预测结果转换为 Hikyuu 友好的信号格式（CSV）。
@@ -39,7 +39,9 @@
    ```bash
    python scripts/run_all.py --config config/base.yaml --steps prepare train features signals backtest summary review --verbose
    ```
-   以上命令将在 `experiments/`, `artifacts/`, `reports/` 等目录输出占位数据。若 Qlib 环境可用，将自动调用真实训练流程。
+以上命令将在 `experiments/`, `artifacts/`, `reports/` 等目录输出占位数据。若 Qlib 环境可用，将自动调用真实训练流程。
+
+生成的数据默认同时保存为 `CSV/HDF5/Parquet` 三种格式（位于 `data/` 目录），也可以通过 `prepare_data.py --cache-format csv --cache-format parquet` 明确指定所需格式。
 
 ## 配置说明
 
