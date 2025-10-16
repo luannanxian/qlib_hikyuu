@@ -153,6 +153,22 @@ python scripts/prepare_data.py \
 - `--append` 开启后会读取现有 CSV，只追加新日期，并在日志中提示缺失交易日、非正数等异常。
 - 默认同时输出 `CSV/HDF5/Parquet` 缓存；可通过多次指定 `--cache-format` 控制保存格式。
 
+生成的特征文件也会自动追加版本号（例如 `features_vd3c2e4b1.csv`），并在同目录下维护 `features.csv.versions.json` 记录对应版本的摘要。
+
+### 3.8 调仓确认配置
+
+默认情况下，`decision` 步骤会读取回测信号并自动通过（当 `auto: true`）。若希望在回测后进行人工确认，可在配置中设置：
+
+```yaml
+decision:
+  report: artifacts/review_decision.json
+  approved: artifacts/approved_signals.csv
+  auto: false          # 关闭自动通过
+  require_confirm: true  # 先展示回测摘要并询问是否继续
+```
+
+命令行运行至 `decision` 阶段时，会先输出 `reports/latest/backtest_summary.json` 的核心指标，然后询问是否进入逐条信号审核；如回答 `n`，流程将退出并不会生成调仓文件。
+
 ## 4. 输出目录说明
 
 - `experiments/`：存放 `pred.pkl` 与 `metrics.json`。

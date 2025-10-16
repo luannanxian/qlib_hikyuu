@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -127,11 +129,10 @@ def _init_qlib_if_needed(runtime_cfg: Dict[str, object]) -> bool:
     return True
 
 
-def _compute_with_qlib(runtime_cfg: Dict[str, object], output: Path) -> bool:
+def _compute_with_qlib(runtime_cfg: Dict[str, object]) -> Optional[pd.DataFrame]:
     if not _init_qlib_if_needed(runtime_cfg):
-        return False
+        return None
 
-    import qlib  # type: ignore  # noqa: WPS347
     from qlib.data import D  # type: ignore  # noqa: WPS347
 
     indicators: Iterable[Dict[str, object]] = runtime_cfg["indicators"]
@@ -158,57 +159,159 @@ def _compute_with_qlib(runtime_cfg: Dict[str, object], output: Path) -> bool:
         )
     except Exception as exc:
         LOGGER.warning("Failed to compute features via Qlib: %s", exc)
-        return False
+        return None
 
     df.columns = pd.Index(column_names, name="indicator")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output)
-    LOGGER.info(
-        "Generated %d indicators for %d records via Qlib: %s",
-        len(column_names),
-        len(df),
-        output,
-    )
-    return True
+    return df
 
 
-def emit_placeholder(template: Dict[str, object], output: Path) -> None:
+def _placeholder_df(template: Dict[str, object]) -> pd.DataFrame:
     indicators = template.get("indicators") or []
-    rows = ["indicator,value"]
+    if not indicators:
+        return pd.DataFrame({"indicator": ["placeholder"], "value": [0.0]})
+    data = {"indicator": [], "value": []}
     for indicator in indicators:
         if isinstance(indicator, dict):
             name = indicator.get("name") or indicator.get("type", "UNKNOWN")
         else:
             name = str(indicator)
-        rows.append(f"{name},0.0")
-    if len(rows) == 1:
-        rows.append("placeholder,0.0")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("\n".join(rows))
-    LOGGER.info("Fallback placeholder features written to %s", output)
+        data["indicator"].append(name)
+        data["value"].append(0.0)
+    return pd.DataFrame(data)
 
 
-def _emit_features(template_path: Path, output_path: Path) -> None:
+def _determine_version(
+    template_path: Path,
+    runtime_cfg: Dict[str, object],
+    override: Optional[str],
+) -> str:
+    if override and override != "auto":
+        return override
+
+    payload = {
+        "template": str(template_path.resolve()),
+        "template_mtime": template_path.stat().st_mtime if template_path.exists() else None,
+        "runtime": {
+            "instruments": runtime_cfg.get("instruments"),
+            "start": runtime_cfg.get("start"),
+            "end": runtime_cfg.get("end"),
+            "freq": runtime_cfg.get("freq"),
+            "indicators": runtime_cfg.get("indicators"),
+        },
+    }
+    digest = hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return digest[:10]
+
+
+def _versioned_path(output_path: Path, version: str) -> Path:
+    stem = output_path.stem
+    suffix = output_path.suffix or ".csv"
+    return output_path.with_name(f"{stem}_v{version}{suffix}")
+
+
+def _write_manifest(manifest_path: Path, version: str, file_path: Path, runtime_cfg: Dict[str, object]) -> None:
+    entry = {
+        "version": version,
+        "file": str(file_path.name),
+        "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "runtime": runtime_cfg,
+    }
+    manifest = []
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except Exception:  # pragma: no cover - malformed manifest fallback
+            manifest = []
+    manifest = [item for item in manifest if item.get("version") != version]
+    manifest.append(entry)
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+
+
+def _save_dataframe(df: pd.DataFrame, path: Path, fmt: str) -> None:
+    fmt = fmt.lower()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    is_placeholder = set(df.columns) <= {"indicator", "value"} and list(df.index.names) == [None]
+    if fmt == "csv":
+        df.to_csv(path, index=not is_placeholder)
+    elif fmt in {"parquet", "pq"}:
+        try:
+            df.to_parquet(path)
+        except Exception as exc:  # pragma: no cover
+            LOGGER.warning("Failed to write Parquet %s: %s", path, exc)
+    elif fmt in {"hdf", "h5", "hdf5"}:
+        try:
+            df.to_hdf(path, key="data", mode="w")
+        except Exception as exc:  # pragma: no cover
+            LOGGER.warning("Failed to write HDF5 %s: %s", path, exc)
+    else:
+        raise ValueError(f"Unsupported format: {fmt}")
+
+
+def _emit_features(
+    template_path: Path,
+    output_path: Path,
+    version_override: Optional[str] = None,
+    formats: Optional[Sequence[str]] = None,
+    keep_basename: bool = True,
+) -> None:
     template = _load_template(template_path)
     runtime_cfg = _resolve_runtime_config(template)
-    if not _compute_with_qlib(runtime_cfg, output_path):
-        emit_placeholder(template, output_path)
+    df = _compute_with_qlib(runtime_cfg)
+    if df is None:
+        df = _placeholder_df(template)
+
+    version = _determine_version(template_path, runtime_cfg, version_override)
+    version_path = _versioned_path(output_path, version)
+    selected_formats = [fmt.lower() for fmt in (formats or ("csv",))]
+
+    for fmt in selected_formats:
+        target = version_path if fmt == "csv" else version_path.with_suffix(f".{fmt if fmt not in {'hdf','hdf5'} else 'h5'}")
+        _save_dataframe(df, target, fmt)
+        LOGGER.info("Wrote features (%s) to %s", fmt, target)
+
+    if keep_basename:
+        for fmt in selected_formats:
+            target = output_path if fmt == "csv" else output_path.with_suffix(f".{fmt if fmt not in {'hdf','hdf5'} else 'h5'}")
+            _save_dataframe(df, target, fmt)
+
+    manifest_path = output_path.with_suffix(output_path.suffix + ".versions.json")
+    _write_manifest(manifest_path, version, version_path, runtime_cfg)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate features from template configuration.")
     parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--version", type=str, default="auto", help="Version tag (default auto hash)")
+    parser.add_argument(
+        "--format",
+        action="append",
+        dest="formats",
+        help="Output format (csv/hdf/parquet). Repeat for multiple.",
+    )
+    parser.add_argument("--no-base-copy", action="store_true", help="Only write versioned files")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 
-    _emit_features(args.template, args.output)
+    _emit_features(
+        args.template,
+        args.output,
+        version_override=args.version,
+        formats=args.formats,
+        keep_basename=not args.no_base_copy,
+    )
     return 0
 
 
-def run_from_config(template_path: Path, output_path: Path) -> None:
-    _emit_features(template_path, output_path)
+def run_from_config(
+    template_path: Path,
+    output_path: Path,
+    version: Optional[str] = None,
+    formats: Optional[Sequence[str]] = None,
+    keep_basename: bool = True,
+) -> None:
+    _emit_features(template_path, output_path, version_override=version, formats=formats, keep_basename=keep_basename)
 
 
 if __name__ == "__main__":

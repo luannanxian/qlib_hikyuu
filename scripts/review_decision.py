@@ -12,10 +12,12 @@ import argparse
 import csv
 import json
 from pathlib import Path
+from typing import Optional
 
 DEFAULT_SIGNALS = Path("artifacts") / "signals.csv"
 DECISION_REPORT = Path("artifacts") / "review_decision.json"
 APPROVED_SIGNALS = Path("artifacts") / "approved_signals.csv"
+SUMMARY_DEFAULT = Path("reports") / "latest" / "backtest_summary.json"
 
 
 def load_signals(path: Path):
@@ -38,6 +40,33 @@ def prompt_decision(signals):
             print("Please enter y, n, or press Enter for default (y).")
         decisions.append(answer != "n")
     return decisions
+
+
+def _print_summary(summary_path: Optional[Path]) -> None:
+    if not summary_path or not summary_path.exists():
+        return
+    try:
+        data = json.loads(summary_path.read_text())
+    except Exception as exc:  # pragma: no cover
+        print(f"[review-decision] failed to read summary {summary_path}: {exc}")
+        return
+    print("\n=== Backtest Summary ===")
+    for key, value in data.items():
+        if isinstance(value, (int, float, str)):
+            print(f"{key}: {value}")
+        elif isinstance(value, list):
+            print(f"{key}: {len(value)} items")
+        else:
+            print(f"{key}: {value}")
+    print("========================\n")
+
+
+def _prompt_continue() -> bool:
+    while True:
+        answer = input("继续逐条审核调仓信号？[Y/n] ").strip().lower()
+        if answer in {"", "y", "n"}:
+            return answer != "n"
+        print("请输入 y 或 n (默认 y)。")
 
 
 def save_decision_report(signals, decisions, report_path: Path, approved_path: Path):
@@ -66,6 +95,8 @@ def run_review(
     report_path: Path = DECISION_REPORT,
     approved_path: Path = APPROVED_SIGNALS,
     auto: bool = False,
+    summary_path: Optional[Path] = None,
+    require_confirm: bool = False,
 ) -> int:
     if not signals_path.exists():
         print(f"Signals file not found: {signals_path}")
@@ -75,6 +106,12 @@ def run_review(
     if not signals:
         print("No signals to review.")
         return 0
+
+    _print_summary(summary_path)
+    if require_confirm and not auto:
+        if not _prompt_continue():
+            print("用户取消执行调仓确认。")
+            return 1
 
     decisions = [True] * len(signals) if auto else prompt_decision(signals)
 
@@ -89,8 +126,17 @@ def main() -> int:
     parser.add_argument("--report", type=Path, default=DECISION_REPORT)
     parser.add_argument("--approved", type=Path, default=APPROVED_SIGNALS)
     parser.add_argument("--auto", action="store_true", help="Approve all signals without prompting.")
+    parser.add_argument("--summary", type=Path, default=SUMMARY_DEFAULT, help="Backtest summary JSON for overview")
+    parser.add_argument("--confirm", action="store_true", help="在审核前要求确认")
     args = parser.parse_args()
-    return run_review(args.signals, args.report, args.approved, args.auto)
+    return run_review(
+        args.signals,
+        args.report,
+        args.approved,
+        args.auto,
+        summary_path=args.summary,
+        require_confirm=args.confirm,
+    )
 
 
 if __name__ == "__main__":

@@ -95,4 +95,4 @@ features/               # 生成的特征文件
 
 ## 后续工作
 
-详见 `doc/hikyuu_qlib_work_plan.md`。Beta 阶段将继续完善半自动调仓、文档、实验管理；GA 阶段会加入监控、复盘报告、跨平台支持等功能。
+详见 `doc/hikyuu_qlib_work_plan.md`。Beta 阶段将继续完善半自动调仓、文档、实验管理；GA 阶段会加入监控、复盘报告、跨平台支持等功能。若想快速体验完整流程，可参考 `doc/USAGE_SCENARIO.md` 的实操示例。

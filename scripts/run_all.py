@@ -80,11 +80,25 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
     experiments_base = Path(experiments_cfg.get("base", "experiments"))
     reports_cfg = config.get("reports", {})
     html_report_path = Path(reports_cfg.get("html", "reports/latest/review.html"))
+    summary_json_path = Path(reports_cfg.get("summary", run_backtest.DEFAULT_REPORT_PATH))
 
     decision_cfg = config.get("decision", {})
     decision_report = Path(decision_cfg.get("report", "artifacts/review_decision.json"))
     decision_output = Path(decision_cfg.get("approved", "artifacts/approved_signals.csv"))
     decision_auto = bool(decision_cfg.get("auto", False))
+    decision_confirm = bool(decision_cfg.get("require_confirm", not decision_auto))
+
+    def _decision_step() -> None:
+        code = review_decision.run_review(
+            Path(signals_cfg.get("output", export_signals.DEFAULT_OUTPUT_PATH)),
+            decision_report,
+            decision_output,
+            decision_auto,
+            summary_path=summary_json_path,
+            require_confirm=decision_confirm,
+        )
+        if code != 0:
+            raise SystemExit(code)
 
     return {
         "check": lambda: check_env.main(),
@@ -98,20 +112,15 @@ def build_registry(config: dict) -> Dict[str, Callable[[], None]]:
         ),
         "backtest": lambda: run_backtest.run(
             Path(signals_cfg.get("output", export_signals.DEFAULT_OUTPUT_PATH)),
-            Path(config.get("reports", {}).get("summary", run_backtest.DEFAULT_REPORT_PATH)),
+            summary_json_path,
         ),
         "summary": lambda: summary.summarize(experiments_base),
         "review": lambda: render_report.run(
             Path(signals_cfg.get("output", export_signals.DEFAULT_OUTPUT_PATH)),
-            Path(reports_cfg.get("summary", run_backtest.DEFAULT_REPORT_PATH)),
+            summary_json_path,
             html_report_path,
         ),
-        "decision": lambda: review_decision.run_review(
-            Path(signals_cfg.get("output", export_signals.DEFAULT_OUTPUT_PATH)),
-            decision_report,
-            decision_output,
-            decision_auto,
-        ),
+        "decision": _decision_step,
     }
 
 

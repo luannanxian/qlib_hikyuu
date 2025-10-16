@@ -52,6 +52,10 @@ indicators:
     header = content[0].split(",")
     assert "indicator" in header or "datetime" in header
     assert len(content) >= 2
+    versioned = list(output.parent.glob("features_v*.csv"))
+    assert versioned
+    manifest = output.with_suffix(".csv.versions.json")
+    assert manifest.exists()
 
 
 def test_export_signals_from_placeholder(tmp_path: Path) -> None:
@@ -122,6 +126,28 @@ def test_review_decision_auto(tmp_path: Path) -> None:
     data = json.loads(report.read_text())
     assert data["approved"] == 1
     assert approved.read_text().count("SH600000") == 1
+
+
+def test_review_decision_summary_confirm(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    signals = tmp_path / "signals.csv"
+    signals.write_text(
+        """datetime,instrument,action,weight,score\n2025-01-01,SH600000,buy,0.5,1.0\n"""
+    )
+    summary = tmp_path / "summary.json"
+    summary.write_text(json.dumps({"total_signals": 1, "unique_instruments": ["SH600000"]}))
+    report = tmp_path / "decision.json"
+    approved = tmp_path / "approved.csv"
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    result = review_decision.run_review(
+        signals,
+        report,
+        approved,
+        auto=False,
+        summary_path=summary,
+        require_confirm=True,
+    )
+    assert result == 1
+    assert not report.exists()
 
 
 def test_summary_collects_metrics(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
