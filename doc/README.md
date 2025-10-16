@@ -43,6 +43,11 @@
 
 生成的数据默认同时保存为 `CSV/HDF5/Parquet` 三种格式（位于 `data/` 目录），也可以通过 `prepare_data.py --cache-format csv --cache-format parquet` 明确指定所需格式。
 
+5. **性能参考**
+   Apple Silicon (M1) + 本地 Hikyuu/MySQL 环境下，`prepare → review` 全流程耗时约 12 秒，满足“1 小时内跑通”的验收目标。数据量更大时，耗时取决于下载窗口及数据库吞吐。
+
+> 如果环境中未安装或版本过旧的 `pyarrow`，Parquet 缓存会跳过写入并提示警告，可使用 `pip install --upgrade pyarrow` 补齐依赖。
+
 ## 配置说明
 
 主配置位于 `config/base.yaml`，涵盖：
