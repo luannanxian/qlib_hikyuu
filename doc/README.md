@@ -5,7 +5,7 @@
 ## 功能概览
 
 - **环境检测**：`scripts/check_env.py` 快速验证 Python 环境、依赖包与关键环境变量。
-- **数据准备**：`scripts/prepare_data.py` 直接调用 Hikyuu/Qlib 数据源生成训练集，支持分片抓取、增量写入，并同步产出 CSV/HDF5/Parquet 缓存。
+- **数据准备**：`scripts/prepare_data.py` 直接调用 Hikyuu/Qlib 数据源生成训练集，支持分片抓取、增量写入，并同步产出 CSV/HDF5/Parquet 缓存，自动生成版本号与 manifest。
 - **特征生成**：`scripts/generate_features.py` 基于 YAML 模板生成技术指标特征。
 - **模型训练**：`scripts/train_model.py` 读取配置自动构建数据集与模型，若 Qlib 环境不可用则自动回退到 placeholder。
 - **信号导出**：`scripts/export_signals.py` 将预测结果转换为 Hikyuu 友好的信号格式（CSV）。
@@ -47,6 +47,30 @@
    Apple Silicon (M1) + 本地 Hikyuu/MySQL 环境下，`prepare → review` 全流程耗时约 12 秒，满足“1 小时内跑通”的验收目标。数据量更大时，耗时取决于下载窗口及数据库吞吐。
 
 > 如果环境中未安装或版本过旧的 `pyarrow`，Parquet 缓存会跳过写入并提示警告，可使用 `pip install --upgrade pyarrow` 补齐依赖。
+
+## 常用命令速查
+
+## 可选：监控输出
+
+`monitor_metrics.py` 可聚合训练/回测的关键指标：
+```bash
+python scripts/monitor_metrics.py \
+  --summary reports/latest/backtest_summary.json \
+  --metrics experiments/latest/metrics.json \
+  --min-signals 100 --min-rows 1000 --max-loss 1.0
+```
+若超出阈值，脚本会在控制台与 `reports/latest/monitoring.json` 中标记 `violations`，可用于后续告警机制。
+
+
+| 功能 | 示例命令 |
+| --- | --- |
+| 分片抓取日线数据 | `python scripts/prepare_data.py --chunk-days 90 --append` |
+| 生成特征并指定版本 | `python scripts/generate_features.py --version v2024Q4 --format csv --format parquet` |
+| 导出信号并预览 | `python scripts/export_signals.py && python scripts/preview_signals.py --top 5` |
+| 回测后调仓确认 | `python scripts/review_decision.py --confirm` |
+| 汇总实验指标 | `python scripts/summary.py --format json --output reports/latest/summary.json` |
+| 配置覆写并执行局部步骤 | `python scripts/run_all.py --set signals.top_k=5 --steps signals` |
+
 
 ## 可选：接入 MLflow 记录训练
 

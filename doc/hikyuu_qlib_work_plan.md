@@ -68,7 +68,7 @@
 - [x] 评估接入 MLflow 的可行性并撰写使用指南（可选）
 
 ### 3.4 文档与 FAQ 更新
-- [ ] 完善 README/CONFIG_GUIDE/FAQ，加入截图与示例（部分完成：CONFIG_GUIDE 已更新）
+- [x] 完善 README/CONFIG_GUIDE/FAQ，加入截图与示例（新增常用命令表、FAQ 扩充）
 - [x] 制作实操范例（博客/Markdown 教程）
 
 ---
@@ -76,7 +76,7 @@
 ## 4. GA 阶段任务（第 6 ~ 8 周）
 
 ### 4.1 监控与告警
-- [ ] Metrics Collector：汇总收益、最大回撤、训练耗时、信号数量等
+- [x] Metrics Collector：汇总收益、训练耗时、信号数量等（新增 monitor_metrics.py）
 - [ ] 构建指标曲线展示（CSV/图表）
 - [ ] 实现基础告警（指标低于阈值、信号缺失），支持邮件/桌面通知
 

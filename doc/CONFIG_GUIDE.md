@@ -194,3 +194,15 @@ python scripts/summary.py --format json --output reports/latest/experiment_summa
 
 ---
 如需更多示例，可参考 `doc/README.md` 与 `doc/hikyuu_qlib_work_plan.md`。
+
+
+### 3.9 监控指标收集
+
+执行回测后，可使用 `scripts/monitor_metrics.py` 汇总关键指标并配置阈值：
+```bash
+python scripts/monitor_metrics.py \
+  --summary reports/latest/backtest_summary.json \
+  --metrics experiments/latest/metrics.json \
+  --min-signals 100 --min-rows 1000 --max-loss 1.0
+```
+若任一指标不满足阈值，脚本退出码为 1，并在输出 JSON (`reports/latest/monitoring.json`) 的 `violations` 字段中给出详情，便于后续接入告警脚本。

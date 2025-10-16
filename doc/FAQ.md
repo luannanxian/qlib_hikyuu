@@ -67,3 +67,13 @@ A: 目前仅验证 macOS Apple Silicon 环境，其他平台待后续 GA 阶段�
 A: 当前仅提供研发环境脚手架，实盘接入需在 GA 阶段评估风控、接口以及合规要求。
 
 如未找到答案，请查看 `doc/hikyuu_qlib_work_plan.md` 或在 issue 中反馈。
+
+
+### Q: `prepare_data.py` 日志里显示 Missing data (possible suspension/holiday)？
+A: 该脚本会根据 Hikyuu 交易日历校验数据完整性，若标的在某些交易日停牌或数据库缺少记录，会输出此类告警，实际不会影响后续流程。若确认数据齐全，可忽略；如需补数，可重新导入 Hikyuu 数据后再执行。
+
+### Q: `generate_features.py` 多了一堆 `features_vXXXX.csv` 是什么？
+A: 新版脚本会为不同的模板与时间范围生成独立版本号，并在目录下维护 `*.versions.json` Manifest，方便回溯。默认仍保留 `features.csv`，如不需要可通过 `--no-base-copy` 禁用。
+
+### Q: `review_decision.py` 执行时提示回测摘要，要如何继续？
+A: 当配置 `decision.require_confirm: true` 或命令行带 `--confirm` 时，脚本会先展示回测指标并询问是否继续，输入 `y` 或直接回车即可继续逐条审核。输入 `n` 会终止流程，不生成调仓文件。
