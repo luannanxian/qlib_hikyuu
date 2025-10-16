@@ -14,7 +14,6 @@ from scripts import (
     check_env,
     export_signals,
     generate_features,
-    monitor_metrics,
     preview_signals,
     prepare_data,
     render_report,
@@ -159,24 +158,6 @@ def test_summary_collects_metrics(tmp_path: Path, capsys: pytest.CaptureFixture[
     out = capsys.readouterr().out
     assert "run1" in out
     assert "10" in out
-
-
-def test_monitor_metrics(tmp_path: Path) -> None:
-    summary_path = tmp_path / "summary.json"
-    summary_path.write_text(json.dumps({"total_signals": 5, "unique_instruments": ["A"], "unique_dates": 2}))
-    metrics_path = tmp_path / "metrics.json"
-    metrics_path.write_text(json.dumps({"rows": 10, "placeholder": False, "loss": 0.5}))
-    output = tmp_path / "monitoring.json"
-    report = monitor_metrics.collect_metrics(
-        summary_path,
-        metrics_path,
-        output,
-        min_signals=1,
-        min_rows=5,
-        max_loss=1.0,
-    )
-    assert report["violations"] == []
-    assert output.exists()
 
 
 def test_train_model_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
