@@ -18,9 +18,9 @@
 ## 2. MVP 阶段任务（第 1 ~ 3 周）
 
 ### 2.1 环境与基础设施
-- [ ] 提供一键安装脚本（conda/venv）与 `check_env.py`
+- [x] 提供一键安装脚本（conda/venv）与 `check_env.py`
 - [x] 建立项目目录结构、配置文件模板（config/base.yaml 等）
-- [ ] 整理基础文档：README、CONFIG_GUIDE、FAQ（初稿）
+- [x] 整理基础文档：README、CONFIG_GUIDE、FAQ（初稿）
 
 ### 2.2 数据适配
 - [x] 实现 `HikyuuDataLoader`（默认加载 O/H/L/C/V/AMOUNT/ADJFACTOR）

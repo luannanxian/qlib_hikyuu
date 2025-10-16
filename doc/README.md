@@ -23,13 +23,12 @@
    cd qlib-workstation
    ```
 
-2. **安装依赖（推荐使用 conda）**
+2. **安装依赖环境**
    ```bash
-   conda create -n qlib_env python=3.11
-   conda activate qlib_env
-   pip install -r requirements.txt  # TODO: 提供精简依赖列表
+   bash scripts/setup_env.sh qlib_hikyuu
+   conda activate qlib_hikyuu  # 若脚本检测不到 conda，会提示使用 venv
    ```
-   > 若已安装 Qlib、Hikyuu，可直接激活对应环境。
+   > 脚本会自动创建虚拟环境并根据 `requirements.txt` 安装依赖。若你已经有现成的 Qlib/Hikyuu 环境，可直接跳过此步并激活对应环境。
 
 3. **检查环境**
    ```bash
