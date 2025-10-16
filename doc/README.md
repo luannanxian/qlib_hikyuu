@@ -48,6 +48,17 @@
 
 > 如果环境中未安装或版本过旧的 `pyarrow`，Parquet 缓存会跳过写入并提示警告，可使用 `pip install --upgrade pyarrow` 补齐依赖。
 
+## 可选：接入 MLflow 记录训练
+
+若希望记录训练指标与工件，可按照 [MLFLOW_GUIDE.md](MLFLOW_GUIDE.md) 的说明启动 MLflow，并设置：
+
+```bash
+export QLIB_USE_MLFLOW=1
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000  # 可选
+```
+
+随后执行 `scripts/run_all.py --steps train` 即可在 MLflow UI 中查看记录。
+
 ## 配置说明
 
 主配置位于 `config/base.yaml`，涵盖：
