@@ -3,7 +3,7 @@ run_modes:
   supported: [quick, full]
 
 workflow:
-  steps: [check, prepare, train, features, signals, backtest, summary, review, decision]
+  steps: [check, prepare, train, features, signals, backtest, summary, review, report, monitor, decision]
 
 data:
   provider_uri: "~/.qlib/qlib_data/cn_data"
@@ -22,10 +22,31 @@ features:
 signals:
   output: artifacts/signals.csv
   top_k: 3
+  top_k_sell: 3
 
 reports:
   summary: reports/latest/backtest_summary.json
   html: reports/latest/review.html
+  detail: reports/latest/review_detail.html
+  report: reports/latest/performance_report.html
+  benchmark:
+    symbol: SH000300
+    csv: data/benchmark_SH000300.csv
+
+monitor:
+  summary: reports/latest/backtest_summary.json
+  metrics: experiments/latest/metrics.json
+  output: reports/latest/monitoring.json
+  min_signals: 10
+  min_rows: 100
+  max_loss: 1.0
+  history: reports/latest/monitoring_history.csv
+  chart: reports/latest/monitoring_chart.html
+  history_limit: 100
+
+compare:
+  baseline: reports/baseline/backtest_summary.json
+  output: reports/latest/compare.csv
 
 decision:
   report: artifacts/review_decision.json

@@ -77,18 +77,19 @@
 
 ### 4.1 监控与告警
 - [x] Metrics Collector：汇总收益、训练耗时、信号数量等（新增 monitor_metrics.py）
-- [ ] 构建指标曲线展示（CSV/图表）
-- [ ] 实现基础告警（指标低于阈值、信号缺失），支持邮件/桌面通知
+- [x] 构建指标曲线展示（CSV/图表）
+- [x] 实现基础告警（指标低于阈值、信号缺失），暂未接入邮件/桌面通知
 
 ### 4.2 复盘与报告
-- [ ] `generate_report.py`：汇总策略表现、持仓结构、指标分布
-- [ ] 自动生成周/月度报告（HTML/PDF）
-- [ ] 支持对比多次实验结果
+- [x] `generate_report.py`：汇总策略表现、持仓结构、指标分布
+- [x] 自动生成周/月度报告（HTML/PDF）
+- [x] 支持对比多次实验结果
 
 ### 4.3 兼容性与扩展预研
 - [ ] 测试 Windows/Linux 下的关键组件，记录兼容性情况
-- [ ] 设计 Streamlit/Gradio UI 原型（展示数据、信号、回测）
-- [ ] 评估自动调度（cron/launchd）与自动下单接口的接入条件
+  - [x] 提供跨平台自检脚本 `scripts/compat_check.py`
+- [x] 设计 Streamlit/Gradio UI 原型（展示数据、信号、回测）（`prototypes/streamlit_dashboard.py`）
+- [x] 评估自动调度（cron/launchd）与自动下单接口的接入条件（见 `doc/scheduling_notes.md`）
 
 ### 4.4 文档与发布
 - [ ] 更新文档至 GA 版本，整理升级指南

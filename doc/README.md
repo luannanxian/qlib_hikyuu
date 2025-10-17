@@ -13,6 +13,9 @@
   - `scripts/run_backtest.py` 汇总信号生成回测摘要。
   - `scripts/summary.py` 汇总实验指标。
   - `scripts/render_report.py` 生成 HTML 调研报告。
+  - `scripts/generate_report.py` 产出包含周/月度汇总的 GA 报告，可选导出 PDF。
+  - `scripts/compare_reports.py` 对比基线与最新回测指标。
+  - `scripts/monitor_metrics.py` 离线监控信号数量、损失等关键指标并标记告警。
 - **工作流编排**：`scripts/run_all.py` 以配置驱动的方式串联上述步骤，支持灵活指定执行步骤。
 
 ## 快速开始
@@ -73,6 +76,18 @@ python scripts/monitor_metrics.py \
 
 
 ## 可选：接入 MLflow 记录训练
+
+## 可选：监控输出
+
+`monitor_metrics.py` 可聚合训练/回测的关键指标：
+```bash
+python scripts/monitor_metrics.py \
+  --summary reports/latest/backtest_summary.json \
+  --metrics experiments/latest/metrics.json \
+  --min-signals 100 --min-rows 1000 --max-loss 1.0
+```
+若超出阈值，脚本会在控制台与 `reports/latest/monitoring.json` 中标记 `violations`，可用于后续告警机制。
+
 
 若希望记录训练指标与工件，可按照 [MLFLOW_GUIDE.md](MLFLOW_GUIDE.md) 的说明启动 MLflow，并设置：
 

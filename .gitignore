@@ -16,3 +16,8 @@ features/
 data/
 artifacts/
 experiments/
+# macOS & tooling artifacts
+.DS_Store
+.codex/
+.pytest_cache/
+tmp/

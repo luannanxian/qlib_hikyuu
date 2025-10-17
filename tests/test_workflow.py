@@ -1,3 +1,4 @@
+import csv
 import json
 import pickle
 import sys
@@ -12,8 +13,11 @@ if str(ROOT) not in sys.path:
 
 from scripts import (
     check_env,
+    compat_check,
+    compare_reports,
     export_signals,
     generate_features,
+    generate_report,
     monitor_metrics,
     preview_signals,
     prepare_data,
@@ -59,6 +63,94 @@ indicators:
     assert manifest.exists()
 
 
+def test_generate_features_uses_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pandas as pd
+
+    cache_path = tmp_path / "cache.pkl"
+    dates = pd.date_range("2025-01-01", periods=4, freq="D")
+    instruments = ["AAA", "BBB"]
+    index = pd.MultiIndex.from_product([dates, instruments], names=["datetime", "instrument"])
+    df = pd.DataFrame(
+        {
+            ("feature", "CLOSE"): range(len(index)),
+            ("feature", "VOLUME"): [100, 200] * 4,
+            ("label", "LABEL0"): [0.1] * len(index),
+        },
+        index=index,
+    )
+    df.to_pickle(cache_path)
+    monkeypatch.setattr(generate_features, "HIKYUU_CACHE_PATH", cache_path)
+
+    template = tmp_path / "template.yaml"
+    template.write_text(
+        """
+name: cache_test
+frequency: day
+instruments:
+  - AAA
+  - BBB
+start: "2025-01-01"
+end: "2025-01-04"
+indicators:
+  - name: close_sma_2
+    type: SMA
+    field: $close
+    window: 2
+  - name: custom_expr
+    expression: "EMA($close, 2) - Ref($close, 1)"
+"""
+    )
+    output = tmp_path / "features.csv"
+    generate_features.run_from_config(template, output)
+    content = pd.read_csv(output)
+    assert {"close_sma_2", "custom_expr"}.issubset(content.columns)
+    assert not content["close_sma_2"].dropna().empty
+
+
+def test_generate_features_uses_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pandas as pd
+
+    cache_path = tmp_path / "cache.pkl"
+    dates = pd.date_range("2025-01-01", periods=4, freq="D")
+    instruments = ["AAA", "BBB"]
+    index = pd.MultiIndex.from_product([dates, instruments], names=["datetime", "instrument"])
+    df = pd.DataFrame(
+        {
+            ("feature", "CLOSE"): range(len(index)),
+            ("feature", "VOLUME"): [100, 200] * 4,
+            ("label", "LABEL0"): [0.1] * len(index),
+        },
+        index=index,
+    )
+    df.to_pickle(cache_path)
+    monkeypatch.setattr(generate_features, "HIKYUU_CACHE_PATH", cache_path)
+
+    template = tmp_path / "template.yaml"
+    template.write_text(
+        """
+name: cache_test
+frequency: day
+instruments:
+  - AAA
+  - BBB
+start: "2025-01-01"
+end: "2025-01-04"
+indicators:
+  - name: close_sma_2
+    type: SMA
+    field: $close
+    window: 2
+  - name: custom_expr
+    expression: "EMA($close, 2) - Ref($close, 1)"
+"""
+    )
+    output = tmp_path / "features.csv"
+    generate_features.run_from_config(template, output)
+    content = pd.read_csv(output)
+    assert {"close_sma_2", "custom_expr"}.issubset(content.columns)
+    assert not content["close_sma_2"].dropna().empty
+
+
 def test_export_signals_from_placeholder(tmp_path: Path) -> None:
     pred_path = tmp_path / "pred.pkl"
     data = [
@@ -74,16 +166,67 @@ def test_export_signals_from_placeholder(tmp_path: Path) -> None:
     assert len(rows) == 2  # header + top1
 
 
-def test_run_backtest_summary(tmp_path: Path) -> None:
+def test_export_signals_includes_sell_side(tmp_path: Path) -> None:
+    pred_path = tmp_path / "pred.pkl"
+    data = [
+        {"datetime": "2025-01-01", "instrument": "AAA", "score": 0.8},
+        {"datetime": "2025-01-01", "instrument": "BBB", "score": -1.2},
+        {"datetime": "2025-01-01", "instrument": "CCC", "score": -0.3},
+    ]
+    with pred_path.open("wb") as fp:
+        pickle.dump(data, fp)
+    output = tmp_path / "signals.csv"
+    export_signals.run(pred_path, output, top_k=1, top_k_sell=1)
+    rows = list(csv.DictReader(output.open()))
+    assert len(rows) == 2
+    action_map = {row["instrument"]: row["action"] for row in rows}
+    assert action_map["AAA"] == "buy"
+    assert action_map["BBB"] == "sell"
+    weights = {row["instrument"]: float(row["weight"]) for row in rows}
+    assert weights["AAA"] == pytest.approx(0.4, rel=1e-4)
+    assert weights["BBB"] == pytest.approx(0.6, rel=1e-4)
+    score_map = {row["instrument"]: float(row["score"]) for row in rows}
+    assert score_map["AAA"] == pytest.approx(0.8, rel=1e-4)
+    assert score_map["BBB"] == pytest.approx(-1.2, rel=1e-4)
+
+
+def test_run_backtest_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pandas as pd
+
+    def fake_load_close_prices(instruments, start, end):
+        dates = pd.to_datetime(["2025-01-01", "2025-01-02"])
+        price_map = {
+            "SH600000": [10.0, 11.0],
+            "SZ000001": [20.0, 18.0],
+        }
+        data = {inst: price_map.get(inst, [10.0, 10.0]) for inst in instruments}
+        return pd.DataFrame(data, index=dates)
+
+    def fake_benchmark(dates, *_):
+        return {date: 0.0 for date in dates}
+
     signals = tmp_path / "signals.csv"
     signals.write_text(
-        """datetime,instrument,action,weight,score\n2025-01-01,SH600000,buy,0.5,1.0\n2025-01-01,SZ000001,buy,0.5,0.8\n"""
+        """datetime,instrument,action,weight,score
+2025-01-01,SH600000,buy,0.6,1.0
+2025-01-01,SZ000001,sell,0.4,-0.5
+"""
     )
     report = tmp_path / "summary.json"
+    monkeypatch.setattr(run_backtest, "_load_close_prices", fake_load_close_prices)
+    monkeypatch.setattr(run_backtest, "_load_benchmark_returns", fake_benchmark)
     run_backtest.run(signals, report)
     data = json.loads(report.read_text())
     assert data["total_signals"] == 2
-    assert data["unique_instruments"] == 2
+    assert len(data["unique_instruments"]) == 2
+    assert data["long_signals"] == 1
+    assert data["short_signals"] == 1
+    assert data["benchmark_symbol"] == "SH000300"
+    assert data["total_return"] == pytest.approx(0.1, rel=1e-4)
+    daily_returns = data["daily_returns"]
+    assert len(daily_returns) == 1
+    assert daily_returns[0]["value"] == pytest.approx(0.1, rel=1e-4)
+    assert data["cumulative_returns"][-1]["value"] == pytest.approx(0.1, rel=1e-4)
 
 
 def test_render_report_outputs_html(tmp_path: Path) -> None:
@@ -94,10 +237,84 @@ def test_render_report_outputs_html(tmp_path: Path) -> None:
     summary_path = tmp_path / "summary.json"
     summary_path.write_text(json.dumps({"total_signals": 1}))
     output = tmp_path / "review.html"
-    render_report.run(signals, summary_path, output)
+    detail = tmp_path / "review_detail.html"
+    render_report.run(signals, summary_path, output, detail)
+    summary_html = output.read_text()
+    detail_html = detail.read_text()
+    assert "Strategy Review" in summary_html
+    assert "review_detail.html" in summary_html
+    assert "SH600000" in detail_html
+
+
+def test_generate_report_outputs(tmp_path: Path) -> None:
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "total_return": 0.1,
+                "annualized_return": 0.2,
+                "sharpe_ratio": 1.1,
+                "max_drawdown": -0.2,
+                "total_signals": 2,
+                "daily_returns": [
+                    {"date": "2025-01-01", "value": 0.01},
+                    {"date": "2025-01-02", "value": -0.02},
+                    {"date": "2025-01-08", "value": 0.03},
+                ],
+            }
+        )
+    )
+    signals = tmp_path / "signals.csv"
+    signals.write_text(
+        """datetime,instrument,action,weight,score
+2025-01-01,AAA,buy,0.5,1.0
+2025-01-02,AAA,sell,0.4,-0.5
+"""
+    )
+    output = tmp_path / "report.html"
+    generate_report.run(summary_path, signals, output, detail_link="detail.html", summary_link="summary.html")
     html = output.read_text()
-    assert "Strategy Review" in html
-    assert "SH600000" in html
+    assert "Performance Report" in html
+    assert "detail.html" in html
+    assert "2025-01" in html
+    assert output.with_name(f"{output.stem}_weekly{output.suffix}").exists()
+    assert output.with_name(f"{output.stem}_monthly{output.suffix}").exists()
+    assert not output.with_suffix(".pdf").exists()
+
+
+def test_compare_reports(tmp_path: Path) -> None:
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    before.write_text(json.dumps({
+        "total_return": 0.1,
+        "annualized_return": 0.2,
+        "annualized_vol": 0.05,
+        "sharpe_ratio": 4.0,
+        "max_drawdown": -0.2,
+        "total_signals": 5,
+        "avg_gross_exposure": 0.5,
+    }))
+    after.write_text(json.dumps({
+        "total_return": 0.15,
+        "annualized_return": 0.22,
+        "annualized_vol": 0.06,
+        "sharpe_ratio": 3.5,
+        "max_drawdown": -0.18,
+        "total_signals": 6,
+        "avg_gross_exposure": 0.55,
+    }))
+    output = tmp_path / "compare.csv"
+    compare_reports.run(before, after, output)
+    content = output.read_text().splitlines()
+    assert "Metric,After (Δ)" in content[0]
+    assert any("total_return" in line for line in content[1:])
+
+
+def test_compat_check_run() -> None:
+    results = compat_check.run_checks()
+    assert "python_version" in results
+    assert "platform" in results
+    assert isinstance(results["python_version"], dict)
 
 
 def test_preview_signals_summary(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -161,12 +378,38 @@ def test_summary_collects_metrics(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert "10" in out
 
 
-def test_monitor_metrics(tmp_path: Path) -> None:
+def test_monitor_metrics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import pandas as pd
+
+    def fake_load_close_prices(instruments, start, end):
+        dates = pd.to_datetime(["2025-01-01", "2025-01-02"])
+        price_map = {
+            "SH600000": [10.0, 11.0],
+            "SZ000001": [20.0, 18.0],
+        }
+        data = {inst: price_map.get(inst, [10.0, 10.0]) for inst in instruments}
+        return pd.DataFrame(data, index=dates)
+
+    def fake_benchmark(dates, *_):
+        return {date: 0.0 for date in dates}
+
     summary_path = tmp_path / "summary.json"
-    summary_path.write_text(json.dumps({"total_signals": 5, "unique_instruments": ["A"], "unique_dates": 2}))
+    monkeypatch.setattr(run_backtest, "_load_close_prices", fake_load_close_prices)
+    monkeypatch.setattr(run_backtest, "_load_benchmark_returns", fake_benchmark)
+    # Create synthetic run_backtest output to feed monitor
+    signals = tmp_path / "signals.csv"
+    signals.write_text(
+        """datetime,instrument,action,weight,score
+2025-01-01,SH600000,buy,0.6,1.0
+2025-01-01,SZ000001,sell,0.4,-0.5
+"""
+    )
+    run_backtest.run(signals, summary_path)
     metrics_path = tmp_path / "metrics.json"
     metrics_path.write_text(json.dumps({"rows": 10, "placeholder": False, "loss": 0.5}))
     output = tmp_path / "monitoring.json"
+    history = tmp_path / "history.csv"
+    chart = tmp_path / "chart.html"
     report = monitor_metrics.collect_metrics(
         summary_path,
         metrics_path,
@@ -174,9 +417,20 @@ def test_monitor_metrics(tmp_path: Path) -> None:
         min_signals=1,
         min_rows=5,
         max_loss=1.0,
+        history_path=history,
+        history_limit=5,
+        chart_path=chart,
+        chart_title="Test Monitoring History",
+        timestamp="2025-01-01T00:00:00",
     )
     assert report["violations"] == []
     assert output.exists()
+    assert history.exists()
+    assert chart.exists()
+    assert "Test Monitoring History" in chart.read_text()
+    history_lines = history.read_text().strip().splitlines()
+    assert history_lines[0].startswith("timestamp")
+    assert len(history_lines) == 2
 
 
 def test_train_model_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -230,16 +484,39 @@ def test_run_all_build_registry(tmp_path: Path):
     config = {
         "features": {"template": str(template), "output": str(tmp_path / "features.csv")},
         "signals": {"output": str(tmp_path / "signals.csv"), "top_k": 1},
-        "reports": {"summary": str(tmp_path / "summary.json"), "html": str(tmp_path / "review.html")},
+        "reports": {"summary": str(tmp_path / "summary.json"), "html": str(tmp_path / "review.html"), "detail": str(tmp_path / "detail.html"), "report": str(tmp_path / "report.html")},
         "decision": {"report": str(tmp_path / "decision.json"), "approved": str(tmp_path / "approved.csv"), "auto": True},
         "experiments": {"base": str(tmp_path / "experiments")},
+        "compare": {"baseline": str(tmp_path / "baseline.json"), "output": str(tmp_path / "compare.csv")},
     }
     (tmp_path / "signals.csv").write_text("datetime,instrument,action,weight,score\n2025-01-01,SH600000,buy,1,0.5\n")
-    (tmp_path / "summary.json").write_text("{}")
+    (tmp_path / "summary.json").write_text(json.dumps({
+        "total_return": 0.1,
+        "annualized_return": 0.2,
+        "annualized_vol": 0.05,
+        "sharpe_ratio": 1.0,
+        "max_drawdown": -0.1,
+        "total_signals": 1,
+        "avg_gross_exposure": 0.5,
+    }))
+    (tmp_path / "baseline.json").write_text(json.dumps({
+        "total_return": 0.05,
+        "annualized_return": 0.1,
+        "annualized_vol": 0.04,
+        "sharpe_ratio": 0.8,
+        "max_drawdown": -0.12,
+        "total_signals": 1,
+        "avg_gross_exposure": 0.4,
+    }))
     registry = run_all.build_registry(config)
     assert "decision" in registry
+    assert "report" in registry
+    assert "monitor" in registry
+    assert "compare" in registry
     registry["decision"]()
     assert (tmp_path / "decision.json").exists()
+    registry["compare"]()
+    assert (tmp_path / "compare.csv").exists()
 
 
 def test_apply_overrides_updates_nested_dict():
@@ -271,9 +548,10 @@ def test_train_model_honors_config_data_source(monkeypatch: pytest.MonkeyPatch) 
         "hikyuu": {"instruments": ["SH600000"]},
         "model": {"class": "LGBModel", "module_path": "qlib.contrib.model.gbdt", "kwargs": {}},
     }
-    dataset_cfg, _ = train_model._build_dataset_and_model(config)
+    dataset_cfg, _, data_source = train_model._build_dataset_and_model(config)
     handler = dataset_cfg["kwargs"]["handler"]
     assert handler["module_path"] == "hikyuu_integration"
+    assert data_source == "hikyuu"
 
 
 def test_review_decision_manual(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
