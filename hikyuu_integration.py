@@ -32,45 +32,45 @@ from pathlib import Path
 _SETUP_LOGGER = logging.getLogger("hikyuu_integration.setup")
 
 
-def _resolve_hikyuu_home() -> Tuple[str, bool]:
+def _resolve_hikyuu_home() -> str:
     """
     解析 Hikyuu 的工作目录。
-    返回值:
-      - 选中的 HKU_HOME 路径
-      - 是否需要临时覆盖 HOME 环境变量
+    返回值: 选中的 HKU_HOME 路径
     """
+    # 优先级1: HKU_HOME 环境变量
     env_home = os.environ.get("HKU_HOME")
     if env_home:
-        return env_home, False
+        _SETUP_LOGGER.info("使用 HKU_HOME 环境变量: %s", env_home)
+        return env_home
 
+    # 优先级2: 用户默认目录 ~/.hikyuu
+    default_home = Path.home() / ".hikyuu"
+    if default_home.exists():
+        _SETUP_LOGGER.info("使用默认 Hikyuu 目录: %s", default_home)
+        return str(default_home)
+
+    # 优先级3: 项目本地目录 .hikyuu_home
     project_root = Path(__file__).resolve().parent
     project_home = project_root / ".hikyuu_home"
-    default_home = Path.home() / ".hikyuu"
-
-    if default_home.exists():
-        return str(default_home), False
-
     project_home.mkdir(parents=True, exist_ok=True)
-    return str(project_home), True
+    _SETUP_LOGGER.info("使用项目本地 Hikyuu 目录: %s", project_home)
+    return str(project_home)
 
 
-_ORIG_HOME = os.environ.get("HOME")
-_HK_HOME, _OVERRIDE_HOME = _resolve_hikyuu_home()
-if _OVERRIDE_HOME:
-    os.environ["HOME"] = _HK_HOME
+# 解析 Hikyuu home 目录
+_HK_HOME = _resolve_hikyuu_home()
+
+# 设置 HKU_HOME 环境变量（Hikyuu 专用，不污染 HOME）
 os.environ["HKU_HOME"] = _HK_HOME
-_SETUP_LOGGER.info("Hikyuu home resolved to %s (override_home=%s)", _HK_HOME, _OVERRIDE_HOME)
+_SETUP_LOGGER.info("Hikyuu home resolved to %s", _HK_HOME)
+
+# 导入 hikyuu
 try:
     import hikyuu as hk
 except ImportError as exc:  # pragma: no cover - 强调运行时依赖
     raise ImportError(
         "请先安装 hikyuu (pip install hikyuu) 并确保可以导入。"
     ) from exc
-finally:
-    if _ORIG_HOME is not None:
-        os.environ["HOME"] = _ORIG_HOME
-    else:
-        os.environ.pop("HOME", None)
 
 # 若存在 hikyuu.ini 则显式初始化，确保数据驱动可用
 _HK_CONFIG = Path(_HK_HOME) / "hikyuu.ini"
