@@ -131,6 +131,7 @@ class HikyuuDataLoader(DataLoader):
     fields: Sequence[str] = ("OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "AMOUNT")
     freq: str = "day"
     label_shift: int = 1
+    mode: str = "train"  # 新增：区分训练和预测模式 ("train" or "predict")
 
     def __post_init__(self):
         freq_map = {"day": hk.Query.DAY, "week": hk.Query.WEEK, "month": hk.Query.MONTH}
@@ -146,6 +147,19 @@ class HikyuuDataLoader(DataLoader):
         start_time: Optional[str],
         end_time: Optional[str],
     ) -> pd.DataFrame:
+        """根据模式加载数据"""
+        if self.mode == "train":
+            return self._load_for_training(instruments, start_time, end_time)
+        else:
+            return self._load_for_prediction(instruments, start_time, end_time)
+
+    def _load_for_training(
+        self,
+        instruments: Iterable[str],
+        start_time: Optional[str],
+        end_time: Optional[str],
+    ) -> pd.DataFrame:
+        """训练模式：包含标签"""
         frames: List[pd.DataFrame] = []
         for inst in instruments:
             hk_code = _to_hikyuu_code(inst)
@@ -167,16 +181,66 @@ class HikyuuDataLoader(DataLoader):
             df = self._to_dataframe(k_data)
             df["instrument"] = inst
 
-            # 构造标签：Ref($close, -label_shift)/$close - 1
-            label = df["close"].shift(-self.label_shift) / df["close"] - 1
-            df["label"] = label
-            df.dropna(inplace=True)  # 确保未来收益存在
+            # 训练模式：计算未来收益作为标签
+            # 注意：这里使用未来数据是合理的，因为是训练时的目标值
+            future_close = df["close"].shift(-self.label_shift)
+            df["label"] = (future_close / df["close"]) - 1
+
+            # 标记哪些数据有有效标签
+            df["has_label"] = ~df["label"].isna()
+
+            # 只保留有标签的数据用于训练
+            df = df[df["has_label"]].copy()
+            df.drop(columns=["has_label"], inplace=True)
 
             frames.append(df)
 
         if not frames:
-            raise ValueError("未能从 Hikyuu 中加载到任何数据，请检查代码或时间区间。")
+            raise ValueError("未能从 Hikyuu 中加载到任何训练数据，请检查代码或时间区间。")
 
+        return self._format_output(frames, include_label=True)
+
+    def _load_for_prediction(
+        self,
+        instruments: Iterable[str],
+        start_time: Optional[str],
+        end_time: Optional[str],
+    ) -> pd.DataFrame:
+        """预测模式：不包含未来信息"""
+        frames: List[pd.DataFrame] = []
+        for inst in instruments:
+            hk_code = _to_hikyuu_code(inst)
+            stock = self._sm[hk_code]
+            if not _is_valid_stock(stock):
+                logger.warning("Hikyuu 中找不到标的 %s（转换后 %s），跳过。", inst, hk_code)
+                continue
+
+            query = self._build_query(start_time, end_time)
+            if hasattr(stock, "get_kdata"):
+                k_data = stock.get_kdata(query)
+            else:
+                k_data = stock.getKData(query)
+            size = len(k_data) if hasattr(k_data, "__len__") else getattr(k_data, "size", lambda: 0)()
+            if size == 0:
+                logger.warning("标的 %s 在区间 [%s, %s] 无数据，跳过。", inst, start_time, end_time)
+                continue
+
+            df = self._to_dataframe(k_data)
+            df["instrument"] = inst
+
+            # 预测模式：不计算标签，避免使用未来信息
+            # 可以添加占位符，但值为 NaN，这样结构一致但不会泄露未来信息
+            df["label"] = pd.NA  # 使用 pandas 的 NA 而不是真实标签
+
+            frames.append(df)
+
+        if not frames:
+            raise ValueError("未能从 Hikyuu 中加载到任何预测数据，请检查代码或时间区间。")
+
+        return self._format_output(frames, include_label=False)
+
+    def _format_output(self, frames: List[pd.DataFrame], include_label: bool) -> pd.DataFrame:
+        """格式化输出数据"""
         data = pd.concat(frames, axis=0)
         data.set_index(["datetime", "instrument"], inplace=True)
 
@@ -193,11 +257,15 @@ class HikyuuDataLoader(DataLoader):
         feature_df = data[[f.lower() for f in self.fields if f.lower() in data.columns]]
         feature_df.columns = feature_index
 
-        label_index = pd.MultiIndex.from_tuples([("label", "LABEL0")], names=["group", "field"])
-        label_df = data[["label"]]
-        label_df.columns = label_index
-
-        return pd.concat([feature_df, label_df], axis=1).sort_index()
+        if include_label:
+            # 训练模式：包含标签
+            label_index = pd.MultiIndex.from_tuples([("label", "LABEL0")], names=["group", "field"])
+            label_df = data[["label"]]
+            label_df.columns = label_index
+            return pd.concat([feature_df, label_df], axis=1).sort_index()
+        else:
+            # 预测模式：只返回特征，不包含标签
+            return feature_df.sort_index()
 
     # 辅助 ---------------------------------------------------------------------------
     def _build_query(self, start: Optional[str], end: Optional[str]) -> hk.Query:
@@ -207,13 +275,14 @@ class HikyuuDataLoader(DataLoader):
                 end_date = pd.Timestamp(end) if end else None
                 start_str = start_date.strftime("%Y-%m-%d") if start_date else ""
                 end_str = end_date.strftime("%Y-%m-%d") if end_date else ""
-                return hk.QueryByDate(start_str, end_str, self._hk_freq)
+                # 修复：Hikyuu 新版本使用 ktype 而非 kType 参数
+                return hk.QueryByDate(start_str, end_str, ktype=self._hk_freq)
             start_dt = hk.Datetime(start) if start else hk.Datetime.min()
             end_dt = hk.Datetime(end) if end else None
-            return hk.Query(start_dt, end_dt, self._hk_freq)
+            return hk.Query(start_dt, end_dt, ktype=self._hk_freq)
         if hasattr(hk, "Query"):
             try:
-                return hk.Query(-1, self._hk_freq)
+                return hk.Query(-1, ktype=self._hk_freq)
             except TypeError:
                 return hk.Query(-1)
         raise RuntimeError("当前 hikyuu 版本缺少可用的 Query 接口，无法构造查询。")
@@ -261,11 +330,12 @@ class HikyuuAlphaHandler(DataHandlerLP):
         freq: str = "day",
         fields: Sequence[str] = ("OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"),
         label_shift: int = 1,
+        mode: str = "train",  # 新增：区分训练和预测模式
         infer_processors: Optional[Sequence[dict]] = None,
         learn_processors: Optional[Sequence[dict]] = None,
         **kwargs,
     ):
-        loader = HikyuuDataLoader(fields=fields, freq=freq, label_shift=label_shift)
+        loader = HikyuuDataLoader(fields=fields, freq=freq, label_shift=label_shift, mode=mode)
         fit_start = fit_start_time or start_time
         fit_end = fit_end_time or end_time
 
@@ -292,6 +362,18 @@ class HikyuuAlphaHandler(DataHandlerLP):
         )
         self.fit_start_time = fit_start
         self.fit_end_time = fit_end
+
+    @classmethod
+    def create_for_training(cls, **kwargs):
+        """创建训练模式的 Handler"""
+        kwargs["mode"] = "train"
+        return cls(**kwargs)
+
+    @classmethod
+    def create_for_prediction(cls, **kwargs):
+        """创建预测模式的 Handler"""
+        kwargs["mode"] = "predict"
+        return cls(**kwargs)
 
 
 __all__ = ["HikyuuDataLoader", "HikyuuAlphaHandler"]
