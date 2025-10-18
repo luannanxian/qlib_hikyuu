@@ -23,10 +23,19 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from qlib.contrib.data.handler import check_transform_proc
-from qlib.data.dataset.handler import DataHandlerLP
-from qlib.data.dataset.loader import DataLoader
-from qlib.log import get_module_logger
+try:
+    from qlib.contrib.data.handler import check_transform_proc
+    from qlib.data.dataset.handler import DataHandlerLP
+    from qlib.data.dataset.loader import DataLoader
+    from qlib.log import get_module_logger
+except ImportError as e:
+    # 如果qlib导入失败，使用简化的替代实现
+    import logging
+    get_module_logger = lambda name: logging.getLogger(name)
+    DataHandlerLP = object
+    DataLoader = object
+    def check_transform_proc(*args, **kwargs):
+        return args[0] if args else None
 from pathlib import Path
 
 _SETUP_LOGGER = logging.getLogger("hikyuu_integration.setup")
@@ -343,10 +352,16 @@ class HikyuuAlphaHandler(DataHandlerLP):
             {"class": "Fillna", "kwargs": {"fields_group": "feature"}},
             {"class": "RobustZScoreNorm", "kwargs": {"fields_group": "feature", "clip_outlier": True}},
         ]
-        default_learn = learn_processors or [
-            {"class": "DropnaLabel"},
-            {"class": "CSRankNorm", "kwargs": {"fields_group": "label"}},
-        ]
+
+        # 预测模式下不使用学习处理器（避免处理不存在的标签）
+        if mode == "predict":
+            default_learn = []
+        else:
+            default_learn = learn_processors or [
+                {"class": "DropnaLabel"},
+                {"class": "CSRankNorm", "kwargs": {"fields_group": "label"}},
+            ]
+
         infer_config = check_transform_proc(default_infer, fit_start, fit_end)
         learn_config = check_transform_proc(default_learn, fit_start, fit_end)
 

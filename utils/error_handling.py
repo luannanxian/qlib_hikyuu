@@ -397,8 +397,32 @@ class ErrorMonitor:
 
 
 # ============================================================================
-# 全局错误处理器
+# 简单的ErrorHandler类（向后兼容）
 # ============================================================================
+
+class ErrorHandler:
+    """错误处理器（简化版）"""
+
+    def __init__(self):
+        self.errors = []
+        self.recovery_strategies = {}
+
+    def log_error(self, error: Exception):
+        """记录错误"""
+        self.errors.append(error)
+        handle_error(error)
+
+    def register_recovery_strategy(self, error_type: Type[Exception], strategy: Callable):
+        """注册恢复策略"""
+        self.recovery_strategies[error_type] = strategy
+
+    def handle_error(self, error: Exception) -> Optional[Any]:
+        """处理错误"""
+        self.log_error(error)
+        error_type = type(error)
+        if error_type in self.recovery_strategies:
+            return self.recovery_strategies[error_type](error)
+        return None
 
 _error_monitor = ErrorMonitor()
 _error_recovery = ErrorRecovery()

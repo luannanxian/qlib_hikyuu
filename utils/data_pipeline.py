@@ -175,9 +175,9 @@ class MissingValueImputer(DataProcessor):
         method = self.config.get("method", "forward")
 
         if method == "forward":
-            data = data.fillna(method="ffill")
+            data = data.ffill()
         elif method == "backward":
-            data = data.fillna(method="bfill")
+            data = data.bfill()
         elif method == "interpolate":
             data = data.interpolate(method="linear")
         elif method in ["mean", "median"]:
@@ -414,6 +414,13 @@ class UnifiedDataPipeline:
                 })
             )
 
+            # 滞后特征会产生缺失值，需要再次填充
+            self.processors.append(
+                MissingValueImputer("滞后特征缺失值填充", {
+                    "method": self.config.fill_method,
+                })
+            )
+
         # 最终验证
         self.processors.append(
             DataValidator("最终验证", {
@@ -505,6 +512,13 @@ class UnifiedDataPipeline:
         """获取所有处理器名称"""
         return [p.name for p in self.processors]
 
+
+# ============================================================================
+# 兼容性类定义
+# ============================================================================
+
+# 为兼容性创建DataPipelineConfig别名
+DataPipelineConfig = DataProcessConfig
 
 # ============================================================================
 # 便捷函数
