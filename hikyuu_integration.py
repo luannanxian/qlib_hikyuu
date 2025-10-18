@@ -29,13 +29,11 @@ try:
     from qlib.data.dataset.loader import DataLoader
     from qlib.log import get_module_logger
 except ImportError as e:
-    # 如果qlib导入失败，使用简化的替代实现
-    import logging
-    get_module_logger = lambda name: logging.getLogger(name)
-    DataHandlerLP = object
-    DataLoader = object
-    def check_transform_proc(*args, **kwargs):
-        return args[0] if args else None
+    # Qlib 是必需的依赖，如果导入失败应该直接报错
+    raise ImportError(
+        "Qlib 环境不可用，请先安装 Qlib：pip install pyqlib\n"
+        f"详细错误信息：{e}"
+    ) from e
 from pathlib import Path
 
 _SETUP_LOGGER = logging.getLogger("hikyuu_integration.setup")
