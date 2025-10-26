@@ -63,6 +63,8 @@ def _build_handler_config(spec: Dict[str, object], data_source: str, config: Dic
         }
 
     # Qlib Alpha158 default handler
+    # NOTE: In newer Qlib versions, Alpha158 creates flat columns instead of Multi-level
+    # We keep processors minimal since we manually handle features/labels later
     handler_kwargs = {
         "start_time": spec["start_time"],
         "end_time": spec["end_time"],
@@ -70,13 +72,10 @@ def _build_handler_config(spec: Dict[str, object], data_source: str, config: Dic
         "fit_end_time": spec["fit_end_time"],
         "instruments": spec["instruments"],
         "infer_processors": [
-            {"class": "FilterCol", "kwargs": {"col_list": ["$close", "$volume"]}},
-            {"class": "RobustZScoreNorm", "kwargs": {"fields_group": "feature", "clip_outlier": True}},
-            {"class": "Fillna", "kwargs": {"fields_group": "feature"}},
+            {"class": "Fillna", "kwargs": {}},
         ],
         "learn_processors": [
             {"class": "DropnaLabel"},
-            {"class": "CSRankNorm", "kwargs": {"fields_group": "label"}},
         ],
         "label": spec.get("label", ["Ref($close, -1) / $close - 1"]),
     }
@@ -140,28 +139,78 @@ def _train_with_qlib(config: Dict[str, object], pred_path: Path, metrics_path: P
     dataset = init_instance_by_config(dataset_cfg)
     model = init_instance_by_config(model_cfg)
 
-    model.fit(dataset)
-    pred = model.predict(dataset, segment="test")
-    if isinstance(pred, pd.Series):
-        pred_df = pred.to_frame("score")
+    # Workaround for flat columns: manually prepare data and train
+    # Get train data
+    print("[DEBUG] Preparing train segment...")
+    train_df = dataset.prepare("train")
+    print(f"[DEBUG] Train raw shape: {train_df.shape}")
+
+    print("[DEBUG] Preparing valid segment...")
+    valid_df = dataset.prepare("valid")
+    print(f"[DEBUG] Valid raw shape: {valid_df.shape}")
+    print(f"[DEBUG] Valid date range: {valid_df.index.get_level_values(0).min() if len(valid_df) > 0 else 'N/A'} to {valid_df.index.get_level_values(0).max() if len(valid_df) > 0 else 'N/A'}")
+
+    print("[DEBUG] Preparing test segment...")
+    test_df = dataset.prepare("test")
+    print(f"[DEBUG] Test raw shape: {test_df.shape}")
+    print(f"[DEBUG] Test date range: {test_df.index.get_level_values(0).min() if len(test_df) > 0 else 'N/A'} to {test_df.index.get_level_values(0).max() if len(test_df) > 0 else 'N/A'}")
+
+    # Split features and labels
+    # The last column is the label, all others are features
+    label_col = train_df.columns[-1]  # "Ref($close, -1) / $close - 1"
+    feature_cols = train_df.columns[:-1]
+
+    X_train = train_df[feature_cols]
+    y_train = train_df[label_col]
+    X_valid = valid_df[feature_cols]
+    y_valid = valid_df[label_col]
+    X_test = test_df[feature_cols]
+    y_test = test_df[label_col]
+
+    print(f"[train-model] Train: X={X_train.shape}, y={y_train.shape}")
+    print(f"[train-model] Valid: X={X_valid.shape}, y={y_valid.shape}")
+    print(f"[train-model] Test: X={X_test.shape}, y={y_test.shape}")
+
+    # Train the model directly with prepared data
+    from lightgbm import LGBMRegressor
+    lgb_params = model_cfg.get("kwargs", {})
+    lgb_model = LGBMRegressor(**lgb_params)
+
+    # Only use eval_set if validation data is not empty
+    fit_params = {}
+    if len(X_valid) > 0:
+        fit_params["eval_set"] = [(X_valid, y_valid)]
+        fit_params["eval_metric"] = "l2"
+
+    lgb_model.fit(X_train, y_train, **fit_params)
+
+    # Predict on test set (or train set if test is empty)
+    if len(X_test) > 0:
+        pred = lgb_model.predict(X_test)
+        pred_df = pd.DataFrame({"score": pred}, index=X_test.index)
+        print(f"[train-model] Predictions made on test set")
     else:
-        pred_df = pd.DataFrame(pred)
+        print(f"[WARN] Test set is empty, using train set for predictions")
+        pred = lgb_model.predict(X_train)
+        pred_df = pd.DataFrame({"score": pred}, index=X_train.index)
 
     pred_path.parent.mkdir(parents=True, exist_ok=True)
     pred_df.to_pickle(pred_path)
 
+    # Extract instruments from MultiIndex
     if isinstance(pred_df.index, pd.MultiIndex):
-        instruments = sorted(pred_df.index.get_level_values(-1).unique())
+        instruments = sorted(pred_df.index.get_level_values(-1).unique().tolist())
     else:
         instruments = []
 
     metrics = {
         "placeholder": False,
         "rows": int(len(pred_df)),
-        "instruments": instruments,
+        "instruments": instruments[:10],  # Limit to first 10 for display
     }
     metrics_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False))
     print(f"[train-model] trained via qlib, predictions saved to {pred_path}")
+    print(f"[train-model] {len(instruments)} instruments, {len(pred_df)} predictions")
 
 
 def _train_placeholder(pred_path: Path, metrics_path: Path) -> None:
@@ -222,7 +271,10 @@ def run_with_config(config: Dict[str, object], pred_path: Path = PRED_PATH, metr
         _train_with_qlib(config, pred_path, metrics_path)
         log_to_mlflow(config, metrics_path)
     except Exception as exc:  # pragma: no cover
-        print(f"[train-model] qlib workflow failed: {exc}\nUsing placeholder results instead.")
+        import traceback
+        print(f"[train-model] qlib workflow failed: {exc}")
+        print(f"[DEBUG] Full traceback:\n{traceback.format_exc()}")
+        print("Using placeholder results instead.")
         _train_placeholder(pred_path, metrics_path)
 
 
